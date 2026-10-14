@@ -35,7 +35,8 @@ class ConfigManager {
       customApiModel: this.context.globalState.get('bscl_ai_custom_api_model', ''),
       customApiName: this.context.globalState.get('bscl_ai_custom_api_name', 'API compatible'),
       openCodeUrl: this.context.globalState.get('bscl_ai_opencode_url', ''),
-      openCodeUsername: this.context.globalState.get('bscl_ai_opencode_username', 'opencode')
+      openCodeUsername: this.context.globalState.get('bscl_ai_opencode_username', 'opencode'),
+       openCodeFreeEnabled: this.context.globalState.get('bscl_ai_opencode_free_enabled', true)
     };
     for (const key of SECRET_KEYS) {
       config[key] = await this.context.secrets.get(`${this.secretPrefix}${key}`) || '';
@@ -71,6 +72,9 @@ class ConfigManager {
     await this.context.globalState.update('bscl_ai_groq_auto_enabled', groqFreeEnabled);
     if (newConfig.freeCloudEnabled !== undefined) {
       await this.context.globalState.update('bscl_ai_free_cloud_enabled', Boolean(newConfig.freeCloudEnabled));
+    }
+    if (newConfig.openCodeFreeEnabled !== undefined) {
+      await this.context.globalState.update('bscl_ai_opencode_free_enabled', Boolean(newConfig.openCodeFreeEnabled));
     }
     const current = await this.getConfig();
     const merged = { ...current, ...newConfig };

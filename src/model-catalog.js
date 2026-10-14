@@ -121,6 +121,44 @@ class ModelCatalog {
       ...freeModels.map((item) => ({ id: `openrouter:${item.id}`, name: `🆓 OpenRouter: ${item.name || item.id}`, provider: 'openrouter' }))
     ];
   }
+
+  static isOpenCodeFreeId(id = '') {
+    return typeof id === 'string' && (id === 'big-pickle' || /-free$/i.test(id));
+  }
+
+  static getOpenCodeFreeFallbackIds() {
+    return [
+      'big-pickle', 'deepseek-v4-flash-free', 'mimo-v2.5-free', 'mimo-v2.6-flash-free',
+      'cat-jam-free', 'ling-3.1-flash-free', 'nemotron-3.5-lightning-free', 'ling-3.0-flash-fin-free',
+      'longcat-2.5-preview-free', 'space-bunny-free', 'jev-1.13-free', 'step-5-preview-free',
+      'muse-spark-1.2-contributor-free', 'muse-spark-1.3-contributor-free',
+      'nemotron-3-super-free', 'mimo-v2-omni-free'
+    ];
+  }
+
+  static async fetchOpenCodeModelCatalog(cache) {
+    if (Date.now() - (cache?.checkedAt || 0) < 300000 && cache?.ids?.length) return cache.ids;
+    const fallback = this.getOpenCodeFreeFallbackIds();
+    try {
+      const res = await fetch('https://opencode.ai/zen/v1/models', {
+        headers: { 'Accept': 'application/json', 'User-Agent': 'opencode/2.0.3' },
+        signal: AbortSignal.timeout(8000)
+      });
+      if (!res.ok) return cache?.ids?.length ? cache.ids : fallback;
+      const data = await res.json();
+      const ids = [...new Set((data.data || []).map((item) => item.id).filter((id) => this.isOpenCodeFreeId(id)))];
+      const resolved = ids.length ? ids : (cache?.ids?.length ? cache.ids : fallback);
+      if (cache) { cache.checkedAt = Date.now(); cache.ids = resolved; }
+      return resolved;
+    } catch {
+      return cache?.ids?.length ? cache.ids : fallback;
+    }
+  }
+
+  static async getOpenCodeModels(cache) {
+    const ids = await this.fetchOpenCodeModelCatalog(cache);
+    return ids.map((id) => ({ id: `opencode:${id}`, name: `🤖 OpenCode Zen · ${id} (Gratis)`, provider: 'opencode' }));
+  }
 }
 
 module.exports = { ModelCatalog };

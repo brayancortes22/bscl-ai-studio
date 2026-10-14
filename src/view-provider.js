@@ -64,7 +64,8 @@ class BsclChatViewProvider {
       customApiName: cfg.customApiName,
       openCodeUrl: cfg.openCodeUrl,
       openCodeUsername: cfg.openCodeUsername,
-      openCodePassword: cfg.openCodePassword
+      openCodePassword: cfg.openCodePassword,
+      openCodeFreeEnabled: cfg.openCodeFreeEnabled
     });
     return cfg;
   }

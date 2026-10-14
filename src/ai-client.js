@@ -29,13 +29,16 @@ class AiClient {
     this.cerebrasApiKey = options.cerebrasApiKey || '';
     this.openRouterApiKey = options.openRouterApiKey || '';
     this.freeCloudEnabled = options.freeCloudEnabled !== false;
+    this.openCodeFreeEnabled = options.openCodeFreeEnabled !== false;
+    this.openCodeApiKey = options.openCodeApiKey || '';
     this.providerCooldown = new ProviderCooldown();
     this.geminiCredentialRevision = 0;
     this.groqCredentialRevision = 0;
     this.groqModelCatalog = { checkedAt: 0, ids: [] };
+    this.opencodeModelCatalog = { checkedAt: 0, ids: [] };
   }
 
-  updateConfig({ smartRouterUrl, ollamaUrl, geminiApiKey, groqApiKey, groqFreeEnabled, cerebrasApiKey, openRouterApiKey, freeCloudEnabled }) {
+  updateConfig({ smartRouterUrl, ollamaUrl, geminiApiKey, groqApiKey, groqFreeEnabled, cerebrasApiKey, openRouterApiKey, freeCloudEnabled, openCodeFreeEnabled, openCodeApiKey }) {
     const nextGeminiApiKey = geminiApiKey || '';
     if (nextGeminiApiKey !== this.geminiApiKey) {
       this.geminiCredentialRevision += 1;
@@ -57,6 +60,11 @@ class AiClient {
     this.cerebrasApiKey = cerebrasApiKey || '';
     this.openRouterApiKey = openRouterApiKey || '';
     if (freeCloudEnabled !== undefined) this.freeCloudEnabled = Boolean(freeCloudEnabled);
+    if (openCodeFreeEnabled !== undefined && Boolean(openCodeFreeEnabled) !== this.openCodeFreeEnabled) {
+      this.openCodeFreeEnabled = Boolean(openCodeFreeEnabled);
+      this.opencodeModelCatalog = { checkedAt: 0, ids: [] };
+    }
+    if (openCodeApiKey !== undefined) this.openCodeApiKey = openCodeApiKey || '';
   }
 
   transcribeAudio() {
@@ -71,6 +79,7 @@ class AiClient {
   getFreeCloudModels() { return Promise.resolve(ModelCatalog.getFreeCloudModels(this.freeCloudEnabled)); }
   fetchVerifiedOpenRouterFreeModels() { return ModelCatalog.fetchVerifiedOpenRouterFreeModels(this.openRouterApiKey); }
   getOpenRouterModels() { return ModelCatalog.getOpenRouterModels(this.openRouterApiKey); }
+  getOpenCodeModels() { if (!this.openCodeFreeEnabled) return Promise.resolve([]); return ModelCatalog.getOpenCodeModels(this.opencodeModelCatalog); }
   pullLocalModel(model, onProgress) { return LocalModelManager.pull(this.ollamaUrl, model, onProgress); }
   async recommendLocalModel() { return LocalModelManager.recommendation(await this.getLocalModels()); }
 
@@ -88,13 +97,13 @@ class AiClient {
   }
 
   async listAllModels() {
-    const [localModels, cloudModels, geminiModels, cerebrasModels, groqModels, openRouterModels, freeCloudModels] = await Promise.all([
+    const [localModels, cloudModels, geminiModels, cerebrasModels, groqModels, openRouterModels, freeCloudModels, openCodeModels] = await Promise.all([
       this.getLocalModels(), this.getCloudModels(), this.getGeminiModels(),
-      this.getCerebrasModels(), this.getGroqModels(), this.getOpenRouterModels(), this.getFreeCloudModels()
+      this.getCerebrasModels(), this.getGroqModels(), this.getOpenRouterModels(), this.getFreeCloudModels(), this.getOpenCodeModels()
     ]);
     const autoModel = cloudModels.find((m) => m.id === 'smart-router');
     const otherCloud = cloudModels.filter((m) => m.id !== 'smart-router');
-    const combined = [autoModel, ...geminiModels, ...cerebrasModels, ...groqModels, ...openRouterModels, ...freeCloudModels, ...otherCloud, ...localModels].filter(Boolean);
+    const combined = [autoModel, ...geminiModels, ...cerebrasModels, ...groqModels, ...openRouterModels, ...freeCloudModels, ...openCodeModels, ...otherCloud, ...localModels].filter(Boolean);
     return [...new Map(combined.map((item) => [item.id, item])).values()];
   }
 
@@ -134,6 +143,53 @@ class AiClient {
     return { content, model, provider: providerName, quota: readQuotaHeaders(response.headers) };
   }
 
+  async sendOpenCodeRequest({ model, messages, timeoutMs = 90000 }) {
+    const baseUrl = 'https://opencode.ai/zen/v1';
+    const sessionId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'User-Agent': 'opencode/2.0.3',
+      'x-opencode-session': sessionId,
+      'x-session-id': sessionId,
+      'x-opencode-client': 'opencode',
+      'x-opencode-project': 'global',
+      'x-title': 'BSCL AI Studio'
+    };
+    if (this.openCodeApiKey) headers.Authorization = `Bearer ${this.openCodeApiKey}`;
+    else headers.Authorization = 'Bearer ';
+    let response;
+    try {
+      response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ model, messages, stream: false }),
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+    } catch (error) {
+      const requestError = new Error(`OpenCode Zen no respondió: ${summarizeProviderError(error.message)}`);
+      requestError.code = error.code || error.name;
+      throw requestError;
+    }
+    if (!response.ok) {
+      const rawError = await response.text();
+      let parsedError = null;
+      try { parsedError = JSON.parse(rawError); } catch {}
+      const providerError = parsedError?.error || parsedError || {};
+      const details = summarizeProviderError(providerError.message || rawError || `HTTP ${response.status}`);
+      const requestError = new Error(`OpenCode Zen respondió HTTP ${response.status}: ${details}`);
+      requestError.status = response.status;
+      requestError.code = providerError.status || providerError.code || '';
+      throw requestError;
+    }
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) throw new Error('OpenCode Zen respondió sin texto utilizable.');
+    return { content, model, provider: `OpenCode Zen (${model})` };
+  }
+
   async sendMessage({ model = 'smart-router', messages = [], systemPrompt = '', webSearch = false, roleHint = '' }) {
     if (typeof model !== 'string') throw new Error('El identificador del modelo no es válido.');
     if (model.startsWith('router:') && !ModelCatalog.isSafeRouterId(model)) model = 'smart-router';
@@ -168,6 +224,13 @@ class AiClient {
     if (model.startsWith('free-cloud:')) {
       return callFreeCloudDirect(formattedMessages, model.slice(11) || 'openai');
     }
+    if (model.startsWith('opencode:')) {
+      if (!this.openCodeFreeEnabled) throw new Error('Los modelos gratuitos de OpenCode están desactivados en ⚙️ APIs.');
+      const freeModel = model.slice(9);
+      if (freeModel !== 'big-pickle' && !/-free$/i.test(freeModel)) throw new Error('Solo se permiten modelos gratuitos de OpenCode.');
+      return this.sendOpenCodeRequest({ model: freeModel, messages: formattedMessages, timeoutMs: 90000 });
+    }
+
     if (model.startsWith('openrouter:')) {
       if (!this.openRouterApiKey) throw new Error('Configura una clave de OpenRouter en ⚙️ APIs.');
       const freeModel = model.slice(11);

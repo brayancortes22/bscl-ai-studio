@@ -4,7 +4,7 @@ const MAX_FINDINGS = 24000;
 
 function isExplicitLocalModel(model = '') {
   if (!model) return false;
-  if (/^(?:smart-router|auto|auto-smart|google\/|gemini:|groq:|cerebras:|openrouter:|router:|free-cloud:)/i.test(model)) {
+  if (/^(?:smart-router|auto|auto-smart|google\/|gemini:|groq:|cerebras:|openrouter:|opencode:|router:|free-cloud:)/i.test(model)) {
     return false;
   }
   return model.startsWith('ollama') || model.includes(':');
