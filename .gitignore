@@ -1,0 +1,21 @@
+# Dependencias
+node_modules/
+
+# Paquetes de la extensión (*.vsix)
+**/*.vsix
+
+# Configuración local de VS Code
+.vscode/
+
+# Archivos de sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+
+# Variables de entorno
+.env
+.env.*

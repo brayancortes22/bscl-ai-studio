@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} data: blob:; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}}; font-src {{cspSource}};">
+  <title>BSCL AI Studio</title>
+  <link rel="stylesheet" href="{{stylesUri}}">
+</head>
+<body>
+  <div class="bscl-app">
+    <!-- Cabecera Limpia Refero AAA -->
+    <header class="app-header">
+      <!-- Barra Superior de Identidad + Versión Activa + Selector Central -->
+      <div class="pill-model-container">
+        <span id="appVersionBadge" class="version-pill" title="Versión activa de BSCL AI Studio">v{{appVersion}}</span>
+        <div class="model-glow-pill">
+          <span class="model-pill-icon">⚡</span>
+          <select id="modelSelect" class="clean-model-select">
+            <option value="smart-router" selected>⚡ Automático · 100% Cloud Gratis (0% PC)</option>
+            <option value="openrouter:openrouter/free">🆓 OpenRouter · modelo gratuito en la nube</option>
+            <option value="free-cloud:openai">☁️ Nube Pública Gratis · sin API Key</option>
+          </select>
+          <span class="chevron-down">▾</span>
+        </div>
+      </div>
+
+      <!-- Barra de Acciones Rápidas & Modos -->
+      <div class="header-action-row">
+        <div class="quick-pill-group">
+          <button id="btnNewChat" class="pill-action-btn pill-btn-accent" title="Iniciar nueva conversación">➕ Nuevo</button>
+          <button id="btnHistory" class="pill-action-btn" title="Historial de conversaciones">📜 Historial</button>
+          <button id="btnSettings" class="pill-action-btn" title="Configurar APIs y cuentas">⚙️ APIs</button>
+        </div>
+        <div class="mode-skill-group">
+          <select id="modeSelect" class="pill-sub-select" title="Los agentes se seleccionan según la solicitud">
+            <option value="swarm">⚡ Agentes según la tarea</option>
+            <option value="direct">💬 Chat Directo</option>
+          </select>
+          <select id="skillSelect" class="pill-sub-select" title="Skill de Obsidian">
+            <option value="general">🧠 Cerebro</option>
+            <option value="clean-code">🧼 Clean Code</option>
+            <option value="architecture">🏛️ Arquitectura</option>
+            <option value="devsecops">🛡️ DevSecOps</option>
+            <option value="ui-ux">🎨 UI/UX</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Barra de Conciencia de Workspace en Tiempo Real -->
+      <div class="workspace-context-bar">
+        <div id="activeFileChip" class="active-file-chip" title="Archivo activo enfocado">
+          <span class="dot-online"></span>
+          <span id="activeFileName">Detectando editor...</span>
+        </div>
+        <label class="auto-context-toggle" title="Incluir automáticamente el código del archivo activo">
+          <input type="checkbox" id="chkAutoContext" checked>
+          <span>Auto-Context</span>
+        </label>
+      </div>
+    </header>
+
+    <!-- Feed de Conversación Principal -->
+    <main id="chatContainer" class="messages-canvas">
+      <div id="welcomeMessage" class="empty-state">
+        <div class="empty-spark">✦</div>
+        <h2>BSCL AI Studio <span class="version-pill version-pill-inline">v{{appVersion}}</span></h2>
+        <p>Tu asistente agéntico omnimodal con visión total de tu workspace.</p>
+        <div class="empty-shortcuts">
+          <span class="shortcut-tag">⚡ Modo Automático</span>
+          <span class="shortcut-tag">📂 Conciencia de Código</span>
+          <span class="shortcut-tag">📜 Historial Persistente</span>
+        </div>
+      </div>
+
+      <div id="swarmTimeline" class="swarm-capsule-card hidden">
+        <div class="swarm-badge-row">
+          <span class="swarm-pulse-dot"></span>
+          <span id="swarmStepBadge" class="swarm-badge-role">Orquestando...</span>
+        </div>
+        <div id="swarmStepText" class="swarm-step-description">Analizando requerimiento...</div>
+        <section id="taskPlanCard" class="task-plan-card hidden" aria-live="polite">
+          <div class="task-plan-heading"><span>🧭 Tarea detectada</span><strong id="taskPlanTitle"></strong></div>
+          <p id="taskPlanGoal" class="task-plan-goal"></p>
+          <ol id="taskPlanSteps" class="task-plan-steps"></ol>
+          <div id="taskPlanAgents" class="task-plan-agents"></div>
+        </section>
+        <section id="subagentActivity" class="subagent-activity hidden" aria-live="polite">
+          <div class="subagent-activity-heading"><strong>Subagentes en ejecución</strong><span id="subagentCount">0 / 0</span></div>
+          <div id="subagentActivityList" class="subagent-activity-list"></div>
+        </section>
+        <section id="swarmGraph" class="swarm-graph" aria-label="Estado de los agentes del enjambre">
+          <button class="swarm-node" data-agent-id="researcher" type="button" aria-label="Agente Investigador">
+            <span class="swarm-node-heading">🌐 Investigador</span><span class="swarm-node-state">En espera</span><span class="swarm-node-model">Sin búsqueda web en modo gratis</span>
+          </button>
+          <span class="swarm-connector" aria-hidden="true">↓</span>
+          <button class="swarm-node" data-agent-id="architect" type="button" aria-label="Agente Arquitecto">
+            <span class="swarm-node-heading">🏛️ Arquitecto</span><span class="swarm-node-state">En espera</span><span class="swarm-node-model">Modelo pendiente</span>
+          </button>
+          <span class="swarm-connector" aria-hidden="true">↓</span>
+          <button class="swarm-node" data-agent-id="coder" type="button" aria-label="Agente Programador">
+            <span class="swarm-node-heading">💻 Programador</span><span class="swarm-node-state">En espera</span><span class="swarm-node-model">Modelo pendiente</span>
+          </button>
+          <div class="swarm-parallel-label">Revisión concurrente</div>
+          <div class="swarm-parallel-row">
+            <button class="swarm-node" data-agent-id="critic" type="button" aria-label="Agente Crítico multimodal">
+              <span class="swarm-node-heading">🎨 Crítico</span><span class="swarm-node-state">En espera</span><span class="swarm-node-model">Modelo pendiente</span>
+            </button>
+            <button class="swarm-node" data-agent-id="qa" type="button" aria-label="Agente Auditor QA">
+              <span class="swarm-node-heading">🛡️ Auditor QA</span><span class="swarm-node-state">En espera</span><span class="swarm-node-model">Modelo pendiente</span>
+            </button>
+          </div>
+          <p id="swarmAgentDetails" class="swarm-agent-details" aria-live="polite">Selecciona un agente para ver su estado.</p>
+        </section>
+      </div>
+
+      <div id="messagesList" class="thread-stack"></div>
+
+      <div id="loadingIndicator" class="thinking-row hidden">
+        <div class="thinking-dots"><span></span><span></span><span></span></div>
+        <span class="thinking-label">Razonando con el modelo...</span>
+      </div>
+    </main>
+
+    <!-- Cápsula Flotante Inferior de Entrada -->
+    <footer class="docked-footer">
+      <div id="folderDropChip" class="folder-drop-chip" title="Arrastra una carpeta local hasta aquí para usarla como contexto de lectura y escritura">
+        <span id="folderDropName">📂 Arrastra una carpeta aquí para elegir el proyecto</span>
+        <button id="btnClearFolder" class="folder-clear-btn hidden" type="button" title="Dejar de usar esta carpeta">✕</button>
+      </div>
+      <div id="mediaPreview" class="media-dock-preview hidden"></div>
+      <input type="file" id="mediaFileInput" accept=".c,.cc,.cpp,.cs,.css,.dockerfile,.gitignore,.go,.gradle,.h,.html,.ini,.java,.js,.jsx,.json,.kt,.kts,.makefile,.md,.php,.properties,.ps1,.py,.rs,.scss,.sh,.sql,.svelte,.toml,.ts,.tsx,.txt,.vue,.xml,.yaml,.yml,image/png,image/jpeg,image/webp,image/gif,audio/mpeg,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/flac,audio/aiff,audio/webm,audio/opus,.mp3,.wav,.m4a,.aac,.ogg,.flac,.aiff,.aif,.webm,.opus" multiple class="sr-only">
+
+      <div class="floating-prompt-pill">
+        <button id="btnAttach" class="pill-tool-btn" title="Adjuntar código, documentos o imágenes. El audio requiere una herramienta local de transcripción">📎</button>
+        <button id="btnMic" class="pill-tool-btn mic-trigger" title="Dictado por voz (si el Webview permite el micrófono)">🎙️</button>
+        <button id="btnWebSearch" class="pill-tool-btn web-search-toggle" type="button" aria-pressed="false" title="La búsqueda web está desactivada mientras no haya una API gratuita que garantice costo cero">🌐</button>
+        <textarea id="promptInput" rows="1" placeholder="Escribe lo que necesitas o pregunta algo..."></textarea>
+        <button id="btnSend" class="glowing-send-btn" title="Enviar prompt">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </footer>
+
+    <!-- Drawer Lateral de Historial -->
+    <aside id="historyDrawer" class="side-drawer">
+      <div class="drawer-header">
+        <h3>📜 Historial de Chats</h3>
+        <div class="drawer-header-actions">
+          <button id="btnClearAllHistory" class="drawer-action-btn" title="Vaciar historial">Vaciar</button>
+          <button id="btnCloseHistory" class="drawer-close-btn">✕</button>
+        </div>
+      </div>
+      <div id="historySessionList" class="drawer-body"></div>
+    </aside>
+
+    <!-- Modal de Configuración de APIs & Cuentas -->
+    <div id="settingsModal" class="modal-backdrop">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>⚙️ Configuración de APIs & Cuentas</h3>
+          <button id="btnCloseSettings" class="drawer-close-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="cfg-notice" role="note">🛡️ Modo automático: Gemini 3.8 Flash primero; si llega al límite, continúa con Groq Free activado y Smart AI Router (OpenRouter :free u Ollama). El sistema respeta las pausas y tiempos de reintento que informan los proveedores. Mantén Google y Groq en sus niveles gratuitos, sin método de pago ni facturación; BSCL no puede inspeccionar ese estado.</div>
+          <details class="cfg-provider-guide">
+            <summary>¿Qué IA conviene para cada tarea?</summary>
+            <ul>
+              <li><strong>Gemini 3.8 Flash:</strong> opción principal para programación, razonamiento y tareas largas.</li>
+              <li><strong>Groq · Qwen 3.8 27B:</strong> respuestas muy rápidas, código, razonamiento y visión; la ruta gratuita tiene límites diarios estrictos.</li>
+              <li><strong>OpenRouter :free:</strong> alterna entre modelos gratuitos como Qwen, DeepSeek, GLM y otros disponibles; el catálogo cambia.</li>
+              <li><strong>Ollama:</strong> trabajo local y privado cuando el equipo tiene RAM suficiente.</li>
+              <li><strong>Smart AI Router:</strong> coordina los modelos `:free` de OpenRouter y Ollama cuando Gemini/Groq no responden.</li>
+              <li><strong>Cerebras:</strong> inferencia muy rápida para programación y agentes; Figma lo ofrece, pero la cuenta actual empieza con solo US$5 de crédito de prueba.</li>
+              <li><strong>OpenAI API:</strong> modelos GPT de propósito general y programación; la API puede facturar, así que BSCL no la utiliza en modo sin costo.</li>
+              <li><strong>Pollinations:</strong> fallback público sin clave de Figma; recibe prompts en un servicio externo. BSCL no lo usa con contexto del workspace.</li>
+            </ul>
+          </details>
+          <div class="cfg-group">
+            <label>💎 Google Gemini API Key</label>
+            <div class="input-with-eye">
+              <input type="password" id="cfgGeminiKey" placeholder="API key de un proyecto Google AI Studio Free">
+              <button class="btn-toggle-eye" type="button">👁️</button>
+            </div>
+            <small class="cfg-help">Solo se usa Gemini 3.8 Flash. La clave se guarda en SecretStorage de VS Code. La extensión no puede comprobar si el proyecto tiene facturación vinculada; mantenlo en Free y sin facturación. Al agotarse la cuota, la extensión prueba Smart AI Router (OpenRouter :free u Ollama local). Esta clave debe pertenecer al proyecto Free que confirmaste.</small>
+          </div>
+          <div class="cfg-group">
+            <label>🚀 Groq API Key (Ultra Rápido)</label>
+            <div class="input-with-eye">
+              <input type="password" id="cfgGroqKey" placeholder="Clave API de Groq Free">
+              <button class="btn-toggle-eye" type="button">👁️</button>
+            </div>
+            <small class="cfg-help">La cuota depende de tu cuenta y puede cambiar. La extensión usa las cabeceras de cuota y los tiempos de reintento del proveedor; cuando detecta límite, pausa Groq y continúa con la siguiente opción gratuita. La extensión no puede detectar si cambiaste a un plan facturable.</small>
+            <label class="cfg-check-row"><input type="checkbox" id="cfgGroqFreeEnabled"> Usar Groq Free automáticamente después de Gemini</label>
+            <small class="cfg-help">Actívalo solo después de comprobar que tu cuenta sigue en Free y sin método de pago. Al habilitarlo, el contexto de las solicitudes automáticas se envía a Groq. Solo se permite Qwen 3.8 27B.</small>
+          </div>
+          <div class="cfg-group">
+            <label>🧠 OpenRouter API Key (solo modelos gratuitos)</label>
+            <div class="input-with-eye">
+              <input type="password" id="cfgOpenRouterKey" placeholder="sk-or-v1-...">
+              <button class="btn-toggle-eye" type="button">👁️</button>
+            </div>
+            <small class="cfg-help">Se permiten únicamente IDs terminados en :free y el router openrouter/free. El plan gratuito tiene límites diarios; no agregues créditos para mantener el costo en $0.</small>
+          </div>
+          <div class="cfg-group">
+            <label>🌌 SambaNova API Key (Llama 3.3 70B)</label>
+            <div class="input-with-eye">
+              <input type="password" id="cfgSambaNovaKey" placeholder="Desactivado en modo sin costo" disabled>
+              <button class="btn-toggle-eye" type="button">👁️</button>
+            </div>
+          </div>
+          <small class="cfg-help">SambaNova también está desactivado: su clave no se consulta ni se usa.</small>
+          <div class="cfg-group-row">
+            <div class="cfg-group">
+              <label>📡 Smart Router URL</label>
+              <input type="text" id="cfgSmartRouterUrl" value="http://localhost:3000">
+            </div>
+            <div class="cfg-group">
+              <label>💻 Ollama local (solo localhost)</label>
+              <input type="text" id="cfgOllamaUrl" value="http://localhost:11434">
+            </div>
+          </div>
+          <div class="cfg-divider"></div>
+          <h4 class="cfg-section-title">🔌 APIs personalizadas (desactivadas)</h4>
+          <small class="cfg-help">No se envían solicitudes a APIs personalizadas porque su precio no se puede verificar. Los valores guardados se conservan, pero no se usan.</small>
+          <div class="cfg-group-row">
+            <div class="cfg-group">
+              <label>Nombre</label>
+              <input type="text" id="cfgCustomApiName" placeholder="Desactivado" disabled>
+            </div>
+            <div class="cfg-group">
+              <label>Modelo opcional</label>
+              <input type="text" id="cfgCustomApiModel" placeholder="Desactivado" disabled>
+            </div>
+          </div>
+          <div class="cfg-group">
+            <label>URL base (incluye /v1 cuando aplique)</label>
+            <input type="url" id="cfgCustomApiBaseUrl" placeholder="Desactivado" disabled>
+          </div>
+          <div class="cfg-group">
+            <label>Clave de API (opcional en servicios locales)</label>
+            <div class="input-with-eye">
+              <input type="password" id="cfgCustomApiKey" placeholder="Desactivado" disabled>
+              <button class="btn-toggle-eye" type="button">👁️</button>
+            </div>
+          </div>
+          <div class="cfg-divider"></div>
+          <h4 class="cfg-section-title">🧩 OpenCode (desactivado)</h4>
+          <small class="cfg-help">El servidor local de OpenCode puede reenviar solicitudes a un proveedor remoto; se desactivó para evitar cobros. La configuración anterior se conserva, pero no se consulta ni se usa.</small>
+          <div class="cfg-group-row">
+            <div class="cfg-group">
+              <label>URL del servidor</label>
+              <input type="url" id="cfgOpenCodeUrl" placeholder="Desactivado en modo sin costo" disabled>
+            </div>
+            <div class="cfg-group">
+              <label>Usuario Basic Auth</label>
+              <input type="text" id="cfgOpenCodeUsername" value="opencode" disabled>
+            </div>
+          </div>
+          <div class="cfg-group">
+            <label>Contraseña del servidor (si la configuraste)</label>
+            <div class="input-with-eye">
+              <input type="password" id="cfgOpenCodePassword" placeholder="Desactivado en modo sin costo" disabled>
+              <button class="btn-toggle-eye" type="button">👁️</button>
+            </div>
+          </div>
+          <div class="cfg-divider"></div>
+          <h4 class="cfg-section-title">💻 Modelos locales con Ollama</h4>
+          <small id="localModelStatus" class="cfg-help">Analiza la RAM disponible y te recomienda un modelo pequeño antes de descargarlo.</small>
+          <div class="cfg-local-model-actions">
+            <button id="btnRecommendLocalModel" class="pill-action-btn" type="button">Analizar equipo</button>
+            <button id="btnInstallLocalModel" class="pill-action-btn pill-btn-primary" type="button" disabled>Descargar recomendado</button>
+          </div>
+          <div id="testResultsBadge" class="test-badge-container"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="btnTestProviders" class="pill-action-btn">🧪 Probar Conexiones</button>
+          <button id="btnSaveSettings" class="pill-action-btn pill-btn-primary">Guardar Configuración</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{markdownScriptUri}}"></script>
+  <script src="{{workspaceScriptUri}}"></script>
+  <script src="{{historyScriptUri}}"></script>
+  <script src="{{settingsScriptUri}}"></script>
+  <script src="{{swarmScriptUri}}"></script>
+  <script src="{{diffActionsScriptUri}}"></script>
+  <script src="{{messageViewScriptUri}}"></script>
+  <script src="{{scriptUri}}"></script>
+</body>
+</html>

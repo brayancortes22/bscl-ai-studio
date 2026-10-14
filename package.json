@@ -1,0 +1,92 @@
+{
+  "name": "bscl-ai-studio",
+  "displayName": "BSCL AI Studio",
+  "description": "Agente para VS Code con contexto de carpetas, edición reversible, modelos locales, APIs y coordinación de agentes.",
+  "version": "1.0.0",
+  "publisher": "bscl",
+  "author": "Brayan Stid Cortés Lombana (bscl)",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Snippets"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onView:bsclAi.chatView"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "bscl-ai-sidebar",
+          "title": "BSCL AI Studio",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "bscl-ai-sidebar": [
+        {
+          "type": "webview",
+          "id": "bsclAi.chatView",
+          "name": "BSCL AI Studio",
+          "visibility": "visible"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "bsclAi.openChat",
+        "title": "BSCL AI: Abrir Chat",
+        "category": "BSCL AI"
+      },
+      {
+        "command": "bsclAi.explainSelection",
+        "title": "BSCL AI: Explicar Código Seleccionado",
+        "category": "BSCL AI"
+      },
+      {
+        "command": "bsclAi.refactorSelection",
+        "title": "BSCL AI: Refactorizar Código",
+        "category": "BSCL AI"
+      },
+      {
+        "command": "bsclAi.fixBugs",
+        "title": "BSCL AI: Buscar y Corregir Bugs",
+        "category": "BSCL AI"
+      }
+    ],
+    "configuration": {
+      "title": "BSCL AI Studio",
+      "properties": {
+        "bsclAi.smartRouterUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "URL base del servidor Smart AI Router local"
+        },
+        "bsclAi.ollamaUrl": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "URL base de la instancia local de Ollama"
+        },
+        "bsclAi.defaultModel": {
+          "type": "string",
+          "default": "smart-router",
+          "description": "Modelo predeterminado al iniciar el panel (Automático por defecto)"
+        },
+        "bsclAi.obsidianVaultPath": {
+          "type": "string",
+          "default": "",
+          "description": "Ruta absoluta opcional a la bóveda de Obsidian"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "npx -y @vscode/vsce package --no-dependencies --allow-missing-repository"
+  }
+}
