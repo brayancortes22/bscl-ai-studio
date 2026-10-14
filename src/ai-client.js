@@ -197,6 +197,10 @@ class AiClient {
     if (systemPrompt) formattedMessages.unshift({ role: 'system', content: systemPrompt });
     const hasImages = formattedMessages.some((m) => Array.isArray(m.content) && m.content.some((p) => p?.type === 'image_url'));
 
+    if (hasImages && model.startsWith('opencode:')) {
+      throw new Error('El modelo gratuito de OpenCode Zen seleccionado no admite imágenes. Usa un modelo con visión (Gemini/GPT/Claude) o envía solo texto.');
+    }
+
     if (webSearch) {
       const result = await this.sendMessage({
         model, roleHint,
