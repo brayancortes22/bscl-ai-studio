@@ -391,12 +391,20 @@
     renderMediaPreview();
     if (payload.directories?.length) {
       setSelectedFolder(payload.directories[0]);
+    } else {
+      folderDropName.textContent = attachedMedia.length ? `${attachedMedia.length} archivos adjuntos` : 'Sin carpeta seleccionada';
     }
     if (payload.skipped?.length) appendErrorMessage(payload.skipped.join('\n'));
   }
 
   [document, folderDropChip, $('chatContainer')].forEach((target) => {
     if (!target) return;
+    target.addEventListener('dragenter', (event) => {
+      const types = Array.from(event.dataTransfer?.types || []);
+      if (types.some((type) => /uri-list|tree\.explorer|Files/i.test(type)) || event.dataTransfer?.files?.length) {
+        event.preventDefault();
+      }
+    });
     target.addEventListener('dragover', (event) => {
       const types = Array.from(event.dataTransfer?.types || []);
       if (types.some((type) => /uri-list|tree\.explorer|Files/i.test(type)) || event.dataTransfer?.files?.length) {
@@ -410,25 +418,31 @@
     target.addEventListener('drop', (event) => {
       folderDropChip.classList.remove('folder-drop-active');
       const transfer = event.dataTransfer;
-      const containsFolder = Array.from(transfer?.items || []).some((item) => {
-          try { return item.webkitGetAsEntry?.()?.isDirectory; } catch { return false; }
-      });
+      const items = Array.from(transfer?.items || []);
       const files = Array.from(transfer?.files || []);
+      const containsRealFiles = files.some((file) => file.size > 0 || (file.type && file.type !== ''));
+      const containsFolder = items.some((item) => {
+        try { return item.webkitGetAsEntry?.()?.isDirectory; } catch { return false; }
+      }) || files.some((file) => !file.type && file.size === 0);
       const fileUris = extractDroppedUris(transfer);
-      if (files.length && !containsFolder) {
+      if (files.length && (containsRealFiles || !containsFolder)) {
         event.preventDefault(); event.stopPropagation();
+        folderDropName.textContent = files.length === 1 ? files[0].name : `${files.length} archivos`;
         addFileAttachments(files);
         return;
       }
       if (fileUris.length) {
         event.preventDefault(); event.stopPropagation();
+        folderDropName.textContent = 'Procesando arrastre…';
         vscode.postMessage({ type: 'importDroppedItems', payload: { uris: fileUris } });
         return;
       }
-      if (!containsFolder) return;
-      event.preventDefault();
-      event.stopPropagation();
-      vscode.postMessage({ type: 'pickWorkspaceFolder' });
+      if (containsFolder) {
+        event.preventDefault();
+        event.stopPropagation();
+        folderDropName.textContent = 'Selecciona la carpeta…';
+        vscode.postMessage({ type: 'pickWorkspaceFolder' });
+      }
     });
   });
   mediaFileInput.onchange = async (e) => {
