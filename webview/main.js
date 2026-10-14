@@ -99,6 +99,9 @@
     if (session.model) {
       modelSelect.value = session.model === 'huihui_ai/qwen2.5-coder-abliterate:7b' ? 'smart-router' : session.model;
     }
+    if (session.workspaceScope) {
+      vscode.postMessage({ type: 'restoreWorkspaceScope', payload: { path: session.workspaceScope } });
+    }
     conversationHistory.forEach((msg) => {
       if (msg.role === 'user') window.MessageView?.appendUser(msg.content);
       else window.MessageView?.appendAssistant(msg.content, session.model);

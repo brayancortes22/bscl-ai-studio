@@ -88,6 +88,13 @@ class BsclChatViewProvider {
         case 'sendMessage': await this.handleUserMessage(msg.payload); break;
         case 'getContext': this.sendActiveContext(); break;
         case 'getHistory': this.sendHistoryList(); break;
+         case 'restoreWorkspaceScope': {
+           const scopePath = String(msg.payload?.path || '').trim();
+           if (scopePath) {
+             try { await this.selectWorkspaceFolder(vscode.Uri.file(scopePath).toString()); } catch (error) { this.view?.webview.postMessage({ type: 'error', payload: { message: 'No se pudo restaurar la carpeta del chat: ' + error.message } }); }
+           }
+           break;
+         }
         case 'saveChat':
           this.historyManager.saveSession(msg.payload);
           this.sendHistoryList();
@@ -248,7 +255,8 @@ class BsclChatViewProvider {
   async handleUserMessage({ sessionId, model, messages, skillKey, isSwarmMode, mediaItems = [], autoContext = true, webSearchEnabled = false, requestId }) {
     try {
       await this.reloadConfig();
-      this.view?.webview.postMessage({ type: 'status', payload: { loading: true } });
+       this.view?.webview.postMessage({ type: 'status', payload: { loading: true } });
+       this.historyManager.saveSession({ id: sessionId, model, skillKey, messages, workspaceScope: this.workspaceScope });
       const { effectiveMessages, lastUserPrompt, audioItems, imageItems, textItems } = await RequestInput.prepare({
         aiClient: this.aiClient, messages, mediaItems, requestId,
         onAudioStatus: (text) => this.view?.webview.postMessage({ type: 'audioStatus', payload: { text } }),
@@ -260,10 +268,7 @@ class BsclChatViewProvider {
         const list = undone.files.map((file) => `- \`${file}\``).join('\n');
         const content = `Revertí la última entrega y restauré estos archivos:\n\n${list}`;
         this.view?.webview.postMessage({ type: 'aiResponse', payload: { content, provider: 'BSCL AI · Reversión', requestId, revertedUndoId: undone.undoId } });
-        this.historyManager.saveSession({
-          id: sessionId, model, skillKey,
-          messages: [...effectiveMessages, { role: 'assistant', content }]
-        });
+        this.historyManager.saveSession({ id: sessionId, model, skillKey, messages: [...effectiveMessages, { role: 'assistant', content }], workspaceScope: this.workspaceScope });
         this.sendHistoryList();
         return;
       }
@@ -425,7 +430,7 @@ class BsclChatViewProvider {
 
       // Auto-guardado persistente de la sesión
       const updatedMessages = [...effectiveMessages, { role: 'assistant', content: response.content }];
-      this.historyManager.saveSession({ id: sessionId, model, skillKey, messages: updatedMessages });
+      this.historyManager.saveSession({ id: sessionId, model, skillKey, messages: updatedMessages, workspaceScope: this.workspaceScope });
       this.sendHistoryList();
     } catch (err) {
       this.view?.webview.postMessage({ type: 'error', payload: { message: err.message, requestId } });

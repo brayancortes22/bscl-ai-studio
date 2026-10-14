@@ -35,6 +35,7 @@ class HistoryManager {
       updatedAt: Date.now(),
       model: sessionData.model || 'smart-router',
       skillKey: sessionData.skillKey || 'general',
+      workspaceScope: sessionData.workspaceScope || (sessions[idx]?.workspaceScope) || '',
       messages: sessionData.messages || []
     };
 
