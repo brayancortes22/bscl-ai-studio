@@ -190,15 +190,107 @@ class AiClient {
     return { content, model, provider: `OpenCode Zen (${model})` };
   }
 
+  async describeImages(messages = []) {
+    if (this.geminiApiKey) {
+      try {
+        const result = await this.sendCompatibleRequest({
+          model: 'gemini-2.5-flash',
+          messages,
+          baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+          apiKey: this.geminiApiKey,
+          providerName: 'Gemini Vision',
+          timeoutMs: 45000
+        });
+        if (result?.content) return result.content;
+      } catch (error) {
+        // try next provider
+      }
+    }
+
+    if (this.openRouterApiKey) {
+      const visionCandidates = [
+        'google/gemini-2.0-flash-exp:free',
+        'qwen/qwen2.5-vl-72b-instruct:free',
+        'meta-llama/llama-3.2-11b-vision-instruct:free'
+      ];
+      for (const candidate of visionCandidates) {
+        try {
+          const result = await this.sendCompatibleRequest({
+            model: candidate,
+            messages,
+            baseUrl: 'https://openrouter.ai/api/v1',
+            apiKey: this.openRouterApiKey,
+            providerName: 'OpenRouter Vision',
+            timeoutMs: 45000
+          });
+          if (result?.content) return result.content;
+        } catch (error) {
+          // try next candidate
+        }
+      }
+    }
+
+    try {
+      const localModels = await this.getLocalModels();
+      const visionModels = (localModels || []).map((m) => m.id).filter((id) => /llava|vision|bakllava|minicpm-v|qwen.*vl|gemma3/i.test(String(id)));
+      for (const candidate of visionModels) {
+        try {
+          const result = await this.sendCompatibleRequest({
+            model: candidate,
+            messages,
+            baseUrl: `${String(this.ollamaUrl).replace(/\/+$/, '')}/v1`,
+            providerName: `Ollama Vision (${candidate})`,
+            timeoutMs: 60000
+          });
+          if (result?.content) return result.content;
+        } catch (error) {
+          // try next
+        }
+      }
+    } catch (error) {
+      // ignore
+    }
+
+    throw new Error('No hay un modelo con visión disponible para analizar la imagen. Configura una clave Gemini, una clave OpenRouter o instala un modelo local con visión (llava, etc.).');
+  }
+
   async sendMessage({ model = 'smart-router', messages = [], systemPrompt = '', webSearch = false, roleHint = '' }) {
     if (typeof model !== 'string') throw new Error('El identificador del modelo no es válido.');
     if (model.startsWith('router:') && !ModelCatalog.isSafeRouterId(model)) model = 'smart-router';
-    const formattedMessages = messages.map((m) => ({ role: m.role, content: m.content }));
+    let formattedMessages = messages.map((m) => ({ role: m.role, content: m.content }));
     if (systemPrompt) formattedMessages.unshift({ role: 'system', content: systemPrompt });
-    const hasImages = formattedMessages.some((m) => Array.isArray(m.content) && m.content.some((p) => p?.type === 'image_url'));
+    let hasImages = formattedMessages.some((m) => Array.isArray(m.content) && m.content.some((p) => p?.type === 'image_url'));
+
+    if (hasImages && /^(opencode:|groq:|cerebras:|free-cloud:)/.test(model)) {
+      let description = '';
+      try {
+        description = await this.describeImages(formattedMessages);
+      } catch (analysisError) {
+        throw analysisError;
+      }
+      formattedMessages = formattedMessages.map((m) => {
+        if (!Array.isArray(m.content)) return m;
+        const text = m.content.filter((p) => p?.type === 'text').map((p) => p.text || '').filter(Boolean).join('\n');
+        return { role: m.role, content: text };
+      });
+      let annotated = false;
+      for (let i = formattedMessages.length - 1; i >= 0; i -= 1) {
+        if (formattedMessages[i].role === 'user') {
+          const base = (formattedMessages[i].content || '').toString().trim();
+          formattedMessages[i] = {
+            role: 'user',
+            content: (base ? base + '\n\n' : '') + `[Análisis visual de la imagen adjunta]: ${description}`
+          };
+          annotated = true;
+          break;
+        }
+      }
+      if (!annotated) formattedMessages.push({ role: 'user', content: `[Análisis visual de la imagen adjunta]: ${description}` });
+      hasImages = false;
+    }
 
     if (hasImages && model.startsWith('opencode:')) {
-      throw new Error('El modelo gratuito de OpenCode Zen seleccionado no admite imágenes. Usa un modelo con visión (Gemini/GPT/Claude) o envía solo texto.');
+      throw new Error('El modelo gratuito de OpenCode Zen seleccionado no admite imágenes. Usa un modelo con visión o envía solo texto.');
     }
 
     if (webSearch) {
