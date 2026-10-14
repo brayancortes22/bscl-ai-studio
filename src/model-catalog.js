@@ -5,6 +5,15 @@
 const { GEMINI_2026_MODELS, GROQ_FREE_MODELS, CEREBRAS_FREE_MODELS } = require('./free-cloud-fallback');
 
 const ZERO_COST_OPENROUTER_EXCLUDE = /embed|rerank|moderation|transcri/i;
+const XAI_BASE_URL = 'https://api.x.ai/v1';
+const XAI_FALLBACK_MODELS = [
+  { id: 'grok-4.7', label: 'Grok 4.7 (Flagship · código y agentes)' },
+  { id: 'grok-4', label: 'Grok 4 (Razonamiento general)' },
+  { id: 'grok-3', label: 'Grok 3 (Conversación general)' },
+  { id: 'grok-3-mini', label: 'Grok 3 Mini (Rápido y económico)' },
+  { id: 'grok-code-fast-1', label: 'Grok Code Fast 1 (Código rápido)' },
+  { id: 'grok-2-vision-latest', label: 'Grok 2 Vision (Acepta imágenes)' }
+];
 const SAFE_ROUTER_ID = /^router:(?:openrouter\/(?:openrouter\/free|[^\s]+:free)|gemini\/|groq\/|cerebras\/|free-cloud\/)/i;
 const PREFERRED_FREE_FAMILIES = [
   /qwen/i, /deepseek/i, /llama-3\.3-70b|gpt-oss-120b|nemotron/i,
@@ -120,6 +129,38 @@ class ModelCatalog {
       { id: 'openrouter:openrouter/free', name: '🆓 OpenRouter: Enrutador gratuito automático', provider: 'openrouter' },
       ...freeModels.map((item) => ({ id: `openrouter:${item.id}`, name: `🆓 OpenRouter: ${item.name || item.id}`, provider: 'openrouter' }))
     ];
+  }
+
+  static async fetchXaiModelCatalog(xaiApiKey, cache) {
+    if (!xaiApiKey) return [];
+    if (Date.now() - (cache?.checkedAt || 0) < 120000 && cache?.ids?.length) return cache.ids;
+    try {
+      const res = await fetch(`${XAI_BASE_URL}/models`, {
+        headers: { Authorization: `Bearer ${xaiApiKey}` },
+        signal: AbortSignal.timeout(8000)
+      });
+      if (!res.ok) return cache?.ids?.length ? cache.ids : [];
+      const data = await res.json();
+      const ids = [...new Set((data.data || []).map((item) => item.id).filter((id) => typeof id === 'string'))];
+      if (cache) { cache.checkedAt = Date.now(); cache.ids = ids; }
+      return ids;
+    } catch {
+      return cache?.ids?.length ? cache.ids : [];
+    }
+  }
+
+  static async getXaiModels(xaiApiKey, cache) {
+    if (!xaiApiKey) return [];
+    const available = await this.fetchXaiModelCatalog(xaiApiKey, cache);
+    const matches = available.length
+      ? XAI_FALLBACK_MODELS.filter((m) => available.includes(m.id))
+      : XAI_FALLBACK_MODELS;
+    const list = matches.length ? matches : XAI_FALLBACK_MODELS;
+    return list.map((m) => ({
+      id: `grok:${m.id}`,
+      name: `𝕏 Grok · ${m.label} (xAI · de pago)`,
+      provider: 'xai'
+    }));
   }
 
   static isOpenCodeFreeId(id = '') {

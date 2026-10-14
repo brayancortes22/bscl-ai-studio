@@ -65,7 +65,8 @@ class BsclChatViewProvider {
       openCodeUrl: cfg.openCodeUrl,
       openCodeUsername: cfg.openCodeUsername,
       openCodePassword: cfg.openCodePassword,
-      openCodeFreeEnabled: cfg.openCodeFreeEnabled
+      openCodeFreeEnabled: cfg.openCodeFreeEnabled,
+      xaiApiKey: cfg.xaiApiKey
     });
     return cfg;
   }

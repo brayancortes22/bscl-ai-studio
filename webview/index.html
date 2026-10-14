@@ -171,6 +171,7 @@
               <li><strong>Gemini 3.8 Flash:</strong> opción principal para programación, razonamiento y tareas largas.</li>
               <li><strong>Groq · Qwen 3.8 27B:</strong> respuestas muy rápidas, código, razonamiento y visión; la ruta gratuita tiene límites diarios estrictos.</li>
               <li><strong>OpenRouter :free:</strong> alterna entre modelos gratuitos como Qwen, DeepSeek, GLM y otros disponibles; el catálogo cambia.</li>
+              <li><strong>Grok (xAI):</strong> modelos de pago con tu propia clave (grok-4.7, código y visión); solo se usa al seleccionarlo, nunca en Automático.</li>
               <li><strong>Ollama:</strong> trabajo local y privado cuando el equipo tiene RAM suficiente.</li>
               <li><strong>Smart AI Router:</strong> coordina los modelos `:free` de OpenRouter y Ollama cuando Gemini/Groq no responden.</li>
               <li><strong>Cerebras:</strong> inferencia muy rápida para programación y agentes; Figma lo ofrece, pero la cuenta actual empieza con solo US$5 de crédito de prueba.</li>
@@ -203,6 +204,14 @@
               <button class="btn-toggle-eye" type="button">👁️</button>
             </div>
             <small class="cfg-help">Se permiten únicamente IDs terminados en :free y el router openrouter/free. El plan gratuito tiene límites diarios; no agregues créditos para mantener el costo en $0.</small>
+          </div>
+          <div class="cfg-group">
+            <label>𝕏 xAI API Key · Grok (de pago)</label>
+            <div class="input-with-eye">
+              <input type="password" id="cfgXaiKey" placeholder="xai-...">
+              <button class="btn-toggle-eye" type="button">👁️</button>
+            </div>
+            <small class="cfg-help">Activa los modelos Grok (p. ej. grok-4.7, grok-code-fast-1) en el selector. La clave se guarda en SecretStorage de VS Code y nunca en el repo. xAI cobra por uso: revisa tu saldo y límites en console.x.ai. No se usa en el modo Automático (100% gratis).</small>
           </div>
           <div class="cfg-group">
             <label>🌌 SambaNova API Key (Llama 3.3 70B)</label>

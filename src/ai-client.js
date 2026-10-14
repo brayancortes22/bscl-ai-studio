@@ -31,14 +31,17 @@ class AiClient {
     this.freeCloudEnabled = options.freeCloudEnabled !== false;
     this.openCodeFreeEnabled = options.openCodeFreeEnabled !== false;
     this.openCodeApiKey = options.openCodeApiKey || '';
+    this.xaiApiKey = options.xaiApiKey || '';
     this.providerCooldown = new ProviderCooldown();
     this.geminiCredentialRevision = 0;
     this.groqCredentialRevision = 0;
+    this.xaiCredentialRevision = 0;
     this.groqModelCatalog = { checkedAt: 0, ids: [] };
     this.opencodeModelCatalog = { checkedAt: 0, ids: [] };
+    this.xaiModelCatalog = { checkedAt: 0, ids: [] };
   }
 
-  updateConfig({ smartRouterUrl, ollamaUrl, geminiApiKey, groqApiKey, groqFreeEnabled, cerebrasApiKey, openRouterApiKey, freeCloudEnabled, openCodeFreeEnabled, openCodeApiKey }) {
+  updateConfig({ smartRouterUrl, ollamaUrl, geminiApiKey, groqApiKey, groqFreeEnabled, cerebrasApiKey, openRouterApiKey, freeCloudEnabled, openCodeFreeEnabled, openCodeApiKey, xaiApiKey }) {
     const nextGeminiApiKey = geminiApiKey || '';
     if (nextGeminiApiKey !== this.geminiApiKey) {
       this.geminiCredentialRevision += 1;
@@ -65,6 +68,13 @@ class AiClient {
       this.opencodeModelCatalog = { checkedAt: 0, ids: [] };
     }
     if (openCodeApiKey !== undefined) this.openCodeApiKey = openCodeApiKey || '';
+    const nextXaiApiKey = xaiApiKey !== undefined ? (xaiApiKey || '') : this.xaiApiKey;
+    if (nextXaiApiKey !== this.xaiApiKey) {
+      this.xaiCredentialRevision += 1;
+      this.xaiModelCatalog = { checkedAt: 0, ids: [] };
+      this.providerCooldown.clear('grok');
+    }
+    this.xaiApiKey = nextXaiApiKey;
   }
 
   transcribeAudio() {
@@ -80,6 +90,8 @@ class AiClient {
   fetchVerifiedOpenRouterFreeModels() { return ModelCatalog.fetchVerifiedOpenRouterFreeModels(this.openRouterApiKey); }
   getOpenRouterModels() { return ModelCatalog.getOpenRouterModels(this.openRouterApiKey); }
   getOpenCodeModels() { if (!this.openCodeFreeEnabled) return Promise.resolve([]); return ModelCatalog.getOpenCodeModels(this.opencodeModelCatalog); }
+  fetchXaiModelCatalog() { return ModelCatalog.fetchXaiModelCatalog(this.xaiApiKey, this.xaiModelCatalog); }
+  getXaiModels() { return ModelCatalog.getXaiModels(this.xaiApiKey, this.xaiModelCatalog); }
   pullLocalModel(model, onProgress) { return LocalModelManager.pull(this.ollamaUrl, model, onProgress); }
   async recommendLocalModel() { return LocalModelManager.recommendation(await this.getLocalModels()); }
 
@@ -97,13 +109,13 @@ class AiClient {
   }
 
   async listAllModels() {
-    const [localModels, cloudModels, geminiModels, cerebrasModels, groqModels, openRouterModels, freeCloudModels, openCodeModels] = await Promise.all([
+    const [localModels, cloudModels, geminiModels, cerebrasModels, groqModels, openRouterModels, freeCloudModels, openCodeModels, xaiModels] = await Promise.all([
       this.getLocalModels(), this.getCloudModels(), this.getGeminiModels(),
-      this.getCerebrasModels(), this.getGroqModels(), this.getOpenRouterModels(), this.getFreeCloudModels(), this.getOpenCodeModels()
+      this.getCerebrasModels(), this.getGroqModels(), this.getOpenRouterModels(), this.getFreeCloudModels(), this.getOpenCodeModels(), this.getXaiModels()
     ]);
     const autoModel = cloudModels.find((m) => m.id === 'smart-router');
     const otherCloud = cloudModels.filter((m) => m.id !== 'smart-router');
-    const combined = [autoModel, ...geminiModels, ...cerebrasModels, ...groqModels, ...openRouterModels, ...freeCloudModels, ...openCodeModels, ...otherCloud, ...localModels].filter(Boolean);
+    const combined = [autoModel, ...xaiModels, ...geminiModels, ...cerebrasModels, ...groqModels, ...openRouterModels, ...freeCloudModels, ...openCodeModels, ...otherCloud, ...localModels].filter(Boolean);
     return [...new Map(combined.map((item) => [item.id, item])).values()];
   }
 
@@ -199,6 +211,22 @@ class AiClient {
           baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
           apiKey: this.geminiApiKey,
           providerName: 'Gemini Vision',
+          timeoutMs: 45000
+        });
+        if (result?.content) return result.content;
+      } catch (error) {
+        // try next provider
+      }
+    }
+
+    if (this.xaiApiKey) {
+      try {
+        const result = await this.sendCompatibleRequest({
+          model: 'grok-2-vision-latest',
+          messages,
+          baseUrl: 'https://api.x.ai/v1',
+          apiKey: this.xaiApiKey,
+          providerName: 'Grok Vision',
           timeoutMs: 45000
         });
         if (result?.content) return result.content;
@@ -316,6 +344,12 @@ class AiClient {
       const { result, failure } = await ProviderCascade.tryCerebrasCascade(this, formattedMessages, roleHint, model.slice(9));
       if (result) return result;
       throw new Error(failure || 'No se pudo completar con Cerebras Free.');
+    }
+    if (model.startsWith('grok:') || model.startsWith('xai:')) {
+      if (!this.xaiApiKey) throw new Error('Configura tu clave de xAI en ⚙️ APIs para usar Grok.');
+      const grokModel = model.replace(/^(?:grok:|xai:)/, '').trim();
+      if (!grokModel) throw new Error('El identificador del modelo Grok no es válido.');
+      return this.sendCompatibleRequest({ model: grokModel, messages: formattedMessages, baseUrl: 'https://api.x.ai/v1', apiKey: this.xaiApiKey, providerName: `Grok (${grokModel})` });
     }
     if (model.startsWith('free-cloud:')) {
       return callFreeCloudDirect(formattedMessages, model.slice(11) || 'openai');
