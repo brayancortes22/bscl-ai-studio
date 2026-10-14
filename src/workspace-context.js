@@ -107,6 +107,29 @@ class WorkspaceContext {
     } catch { return []; }
   }
 
+  static getWorkspaceTree(scopePath = null, maxDepth = 5, limit = 500) {
+    const root = scopePath || vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+    if (!root) return [];
+    const results = [];
+    const walk = (directory, relative = '', depth = 0) => {
+      if (depth >= maxDepth || results.length >= limit) return;
+      let entries;
+      try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch { return; }
+      const dirs = entries
+        .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() &&
+          !SKIP_DIRS.has(entry.name.toLowerCase()) && !(entry.name.startsWith('.') && entry.name !== '.vscode'))
+        .sort((a, b) => a.name.localeCompare(b.name, 'es'));
+      for (const entry of dirs) {
+        if (results.length >= limit) break;
+        const rel = relative ? `${relative}/${entry.name}` : entry.name;
+        results.push(rel);
+        walk(path.join(directory, entry.name), rel, depth + 1);
+      }
+    };
+    try { walk(root, '', 0); } catch { return []; }
+    return results;
+  }
+
   static isTextFileName(name) {
     return !SKIP_NAMES.test(name) && (TEXT_EXTENSIONS.has(path.extname(name).toLowerCase()) ||
       /^(readme|dockerfile|makefile|\.gitignore|\.editorconfig|\.gitattributes)$/i.test(name));

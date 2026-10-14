@@ -70,6 +70,12 @@ class WorkspaceInspector {
     }
   }
 
+  static getWorkspaceTree(maxDepth = 5, limit = 500) {
+    const { WorkspaceContext } = require('./workspace-context');
+    const root = this.getWorkspaceRoot();
+    return root ? WorkspaceContext.getWorkspaceTree(root, maxDepth, limit) : [];
+  }
+
   static readFile(relativePath) {
     const root = this.getWorkspaceRoot();
     if (!root) throw new Error('No hay workspace abierto');

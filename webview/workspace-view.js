@@ -12,7 +12,7 @@ window.WorkspaceView = (function () {
 
   function update(payload) {
     currentContext = payload;
-    const { activeEditor, openEditors = [], workspaceDirectories = [] } = payload || {};
+    const { activeEditor, openEditors = [], workspaceDirectories = [], workspaceFolderTree = [] } = payload || {};
 
     if (activeEditor) {
       activeFileChip.classList.remove('hidden');
@@ -20,10 +20,11 @@ window.WorkspaceView = (function () {
       activeFileChip.title = `Ruta: ${activeEditor.relativePath}\nSelección: ${activeEditor.selectedText ? 'Sí' : 'No'}`;
     } else {
       activeFileChip.classList.remove('hidden');
-      activeFileName.textContent = workspaceDirectories.length > 0
-        ? `📁 ${workspaceDirectories.length} carpetas principales`
+      const totalFolders = (workspaceFolderTree && workspaceFolderTree.length) ? workspaceFolderTree.length : (workspaceDirectories || []).length;
+      activeFileName.textContent = totalFolders > 0
+        ? `📁 ${totalFolders} carpetas y subcarpetas`
         : '📂 Workspace activo';
-      activeFileChip.title = 'Carpetas visibles de primer nivel; no todas se verifican como proyectos.';
+      activeFileChip.title = `Carpetas directas: ${(workspaceDirectories || []).length}\nSubcarpetas incluidas: ${(workspaceFolderTree || []).length}`;
     }
 
     if (openTabsList) {
