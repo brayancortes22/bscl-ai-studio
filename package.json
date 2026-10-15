@@ -2,7 +2,7 @@
   "name": "bscl-ai-studio",
   "displayName": "BSCL AI Studio",
   "description": "Agente para VS Code con contexto de carpetas, edición reversible, modelos locales, APIs y coordinación de agentes.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "bscl",
   "author": "Brayan Stid Cortés Lombana (bscl)",
   "license": "MIT",
@@ -87,6 +87,9 @@
     }
   },
   "scripts": {
-    "package": "npx -y @vscode/vsce package --no-dependencies --allow-missing-repository"
+    "package": "npx -y @vscode/vsce package --no-dependencies --allow-missing-repository",
+    "release:patch": "npm version patch",
+    "release:minor": "npm version minor",
+    "release:major": "npm version major"
   }
 }
