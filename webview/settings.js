@@ -18,6 +18,7 @@ window.SettingsView = (function () {
     groqFreeEnabled: document.getElementById('cfgGroqFreeEnabled'),
     openrouter: document.getElementById('cfgOpenRouterKey'),
     xai: document.getElementById('cfgXaiKey'),
+    meta: document.getElementById('cfgMetaKey'),
     sambanova: document.getElementById('cfgSambaNovaKey'),
     smartRouterUrl: document.getElementById('cfgSmartRouterUrl'),
     ollamaUrl: document.getElementById('cfgOllamaUrl'),
@@ -62,6 +63,7 @@ window.SettingsView = (function () {
     if (fields.groqFreeEnabled) fields.groqFreeEnabled.checked = Boolean(config.groqFreeEnabled);
     if (fields.openrouter) fields.openrouter.value = config.openRouterApiKey || '';
     if (fields.xai) fields.xai.value = config.xaiApiKey || '';
+    if (fields.meta) fields.meta.value = config.metaApiKey || '';
     if (fields.sambanova) fields.sambanova.value = config.sambanovaApiKey || '';
     if (fields.smartRouterUrl) fields.smartRouterUrl.value = config.smartRouterUrl || 'http://localhost:3000';
     if (fields.ollamaUrl) fields.ollamaUrl.value = config.ollamaUrl || 'http://localhost:11434';
@@ -81,6 +83,7 @@ window.SettingsView = (function () {
       groqFreeEnabled: Boolean(fields.groqFreeEnabled?.checked),
       openRouterApiKey: fields.openrouter?.value.trim() || '',
       xaiApiKey: fields.xai?.value.trim() || '',
+      metaApiKey: fields.meta?.value.trim() || '',
       sambanovaApiKey: fields.sambanova?.value.trim() || '',
       smartRouterUrl: fields.smartRouterUrl?.value.trim() || 'http://localhost:3000',
       ollamaUrl: fields.ollamaUrl?.value.trim() || 'http://localhost:11434',
@@ -104,8 +107,9 @@ window.SettingsView = (function () {
     const groqStatus = results.groq?.status === 'online' ? '🟢 Groq LPU: Activo' : results.groq?.enabled ? '🟠 Groq: revisa cuenta' : '⚪ Groq: desactivado';
     const freeApiStatus = results.openrouter?.status === 'online' ? '🟢 OpenRouter :free' : results.openrouter?.configured ? '🟠 OpenRouter: revisa clave' : '⚪ OpenRouter :free';
     const grokStatus = results.grok?.status === 'online' ? '🟢 Grok (xAI): Activo' : results.grok?.configured ? '🟠 Grok: revisa clave' : '⚪ Grok: sin configurar';
+    const metaStatus = results.meta?.status === 'online' ? '🟢 Meta Muse: Activo' : results.meta?.configured ? '🟠 Meta: revisa clave' : '⚪ Meta: sin configurar';
     const freeCloudStatus = results.freeCloud?.status === 'online' ? '🟢 Nube Pública: Lista' : '⚪ Nube Pública: Off';
-    testResultsBadge.innerHTML = `<span class="badge-tag">🛡️ Cascada Gratis Pro</span> <span class="badge-tag">${sStatus}</span> <span class="badge-tag">${gStatus}</span> <span class="badge-tag">${groqStatus}</span> <span class="badge-tag">${freeApiStatus}</span> <span class="badge-tag">${grokStatus}</span> <span class="badge-tag">${freeCloudStatus}</span> <span class="badge-tag">${oStatus}</span>`;
+    testResultsBadge.innerHTML = `<span class="badge-tag">🛡️ Cascada Gratis Pro</span> <span class="badge-tag">${sStatus}</span> <span class="badge-tag">${gStatus}</span> <span class="badge-tag">${groqStatus}</span> <span class="badge-tag">${freeApiStatus}</span> <span class="badge-tag">${grokStatus}</span> <span class="badge-tag">${metaStatus}</span> <span class="badge-tag">${freeCloudStatus}</span> <span class="badge-tag">${oStatus}</span>`;
   }
 
   function showLocalModelRecommendation(result = {}) {

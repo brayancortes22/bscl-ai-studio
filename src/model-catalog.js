@@ -6,6 +6,14 @@ const { GEMINI_2026_MODELS, GROQ_FREE_MODELS, CEREBRAS_FREE_MODELS } = require('
 
 const ZERO_COST_OPENROUTER_EXCLUDE = /embed|rerank|moderation|transcri/i;
 const XAI_BASE_URL = 'https://api.x.ai/v1';
+const META_BASE_URL = 'https://api.meta.ai/v1';
+const META_FALLBACK_MODELS = [
+  { id: 'muse-wonder-1.0', label: 'Muse Wonder 1.0 (Código y agentes · 1M ctx)' },
+  { id: 'muse-spark-1.3', label: 'Muse Spark 1.3 (Código agéntico)' },
+  { id: 'muse-spark-1.2', label: 'Muse Spark 1.2 (Código agéntico)' },
+  { id: 'muse-spark-1.3-contributor', label: 'Muse Spark 1.3 Contributor (Descuento)' },
+  { id: 'muse-spark-1.1', label: 'Muse Spark 1.1 (Código agéntico)' }
+];
 const XAI_FALLBACK_MODELS = [
   { id: 'grok-4.7', label: 'Grok 4.7 (Flagship · código y agentes)' },
   { id: 'grok-4', label: 'Grok 4 (Razonamiento general)' },
@@ -160,6 +168,39 @@ class ModelCatalog {
       id: `grok:${m.id}`,
       name: `𝕏 Grok · ${m.label} (xAI · de pago)`,
       provider: 'xai'
+    }));
+  }
+
+  static async fetchMetaModelCatalog(metaApiKey, cache) {
+    if (!metaApiKey) return [];
+    if (Date.now() - (cache?.checkedAt || 0) < 120000 && cache?.ids?.length) return cache.ids;
+    try {
+      const res = await fetch(`${META_BASE_URL}/models`, {
+        headers: { Authorization: `Bearer ${metaApiKey}` },
+        signal: AbortSignal.timeout(8000)
+      });
+      if (!res.ok) return cache?.ids?.length ? cache.ids : [];
+      const data = await res.json();
+      const chatCapable = new Set(META_FALLBACK_MODELS.map((m) => m.id));
+      const ids = [...new Set((data.data || []).map((item) => item.id).filter((id) => typeof id === 'string' && chatCapable.has(id)))];
+      if (cache) { cache.checkedAt = Date.now(); cache.ids = ids; }
+      return ids;
+    } catch {
+      return cache?.ids?.length ? cache.ids : [];
+    }
+  }
+
+  static async getMetaModels(metaApiKey, cache) {
+    if (!metaApiKey) return [];
+    const available = await this.fetchMetaModelCatalog(metaApiKey, cache);
+    const matches = available.length
+      ? META_FALLBACK_MODELS.filter((m) => available.includes(m.id))
+      : META_FALLBACK_MODELS;
+    const list = matches.length ? matches : META_FALLBACK_MODELS;
+    return list.map((m) => ({
+      id: `meta:${m.id}`,
+      name: `🔵 Meta · ${m.label} (de pago)`,
+      provider: 'meta'
     }));
   }
 

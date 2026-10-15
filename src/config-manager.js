@@ -2,7 +2,7 @@ const vscode = require('vscode');
 const { GEMINI_2026_MODELS, GROQ_FREE_MODELS } = require('./free-cloud-fallback');
 
 const SECRET_KEYS = [
-  'geminiApiKey', 'groqApiKey', 'openRouterApiKey', 'sambanovaApiKey', 'cerebrasApiKey', 'customApiKey', 'openCodePassword', 'xaiApiKey'
+  'geminiApiKey', 'groqApiKey', 'openRouterApiKey', 'sambanovaApiKey', 'cerebrasApiKey', 'customApiKey', 'openCodePassword', 'xaiApiKey', 'metaApiKey'
 ];
 
 function isLoopbackUrl(value) {
@@ -114,6 +114,7 @@ class ConfigManager {
       groq: { configured: Boolean(cfg.groqApiKey), enabled: Boolean(cfg.groqFreeEnabled), status: cfg.groqFreeEnabled && cfg.groqApiKey ? 'checking-free-model' : 'not-enabled' },
       openrouter: { configured: Boolean(cfg.openRouterApiKey), status: cfg.openRouterApiKey ? 'configured' : 'not-configured' },
       grok: { configured: Boolean(cfg.xaiApiKey), status: cfg.xaiApiKey ? 'checking-model' : 'not-configured' },
+      meta: { configured: Boolean(cfg.metaApiKey), status: cfg.metaApiKey ? 'checking-model' : 'not-configured' },
       freeCloud: { enabled: Boolean(cfg.freeCloudEnabled), status: cfg.freeCloudEnabled ? 'online' : 'disabled' }
     };
 
@@ -138,6 +139,12 @@ class ConfigManager {
         headers: { Authorization: `Bearer ${cfg.xaiApiKey}` }, signal: AbortSignal.timeout(5000)
       }).then((res) => { results.grok.status = res.ok ? 'online' : `error-${res.status}`; })
         .catch(() => { results.grok.status = 'offline'; }));
+    }
+    if (cfg.metaApiKey) {
+      checks.push(fetch('https://api.meta.ai/v1/models', {
+        headers: { Authorization: `Bearer ${cfg.metaApiKey}` }, signal: AbortSignal.timeout(5000)
+      }).then((res) => { results.meta.status = res.ok ? 'online' : `error-${res.status}`; })
+        .catch(() => { results.meta.status = 'offline'; }));
     }
     if (cfg.geminiApiKey) {
       checks.push(fetch('https://generativelanguage.googleapis.com/v1beta/openai/models', {
