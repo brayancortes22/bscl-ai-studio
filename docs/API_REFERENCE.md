@@ -1,46 +1,122 @@
-# Referencia técnica y APIs: BSCL AI Studio
+# Protocolo y APIs de BSCL AI Studio
 
-- **Extensión:** 0.9.5 · **Router:** 1.4.1
+## Webview → extensión
 
-## IPC Webview → Extension Host
+Los mensajes se reciben en `src/view-provider.js` (`handleMessage`). Todo payload se trata
+como no confiable: la extensión comprueba tipos y rutas.
 
-| Tipo | Datos | Uso |
+| Tipo | Payload | Qué hace |
 |---|---|---|
-| ready | — | Cargar modelos, contexto, historial y configuración |
-| sendMessage | SendMessagePayload | Enviar prompt, historial y adjuntos |
-| importDroppedItems | { uris: string[] } | Importar archivos/carpetas file: |
-| selectWorkspaceFolder / pickWorkspaceFolder | URI / — | Elegir carpeta de trabajo |
-| clearWorkspaceFolder | — | Usar la carpeta abierta en VS Code |
-| prepareDiff / acceptDiff / discardDiff | ID de propuesta | Revisar, aplicar o descartar un Diff |
-| undoChanges | { undoId?: string } | Revertir una entrega |
-| recommendLocalModel / installLocalModel | { model?: string } | Recomendar o descargar perfil local |
-| saveApiConfig / testProviders | Configuración / — | Guardar claves y probar APIs |
+| `ready` | `{ sessionId? }` | El webview está listo: se envían contexto, historial y modelos, y se entregan los comandos en cola |
+| `sendMessage` | `{ sessionId, requestId, model, messages[], skillKey, isSwarmMode, mediaItems[], autoContext, webSearchEnabled: false }` | Petición del usuario. Se rechaza si hay otra en curso. Solo se usan los últimos 40 mensajes con rol `user` o `assistant` |
+| `cancelRequest` | `{ requestId }` | Aborta la petición en curso |
+| `loadSession` | `{ id, silent? }` | Responde `sessionLoaded` con la conversación completa |
+| `restoreWorkspaceScope` | `{ sessionId }` | Restaura la carpeta guardada en esa sesión; no acepta rutas sueltas |
+| `getHistory` · `deleteChat` · `clearAllChats` | — · `{ id }` · — | Historial. Vaciar pide confirmación modal en VS Code |
+| `getApiConfig` · `saveApiConfig` · `testProviders` | — · parche · — | Ajustes (ver más abajo) |
+| `pickWorkspaceFolder` · `clearWorkspaceFolder` | — | Carpeta de trabajo |
+| `importDroppedItems` | `{ uris: string[] }` (máx. 20) | Archivos o una carpeta arrastrados desde el Explorador |
+| `recommendLocalModel` · `installLocalModel` | — · `{ model }` | Modelo local de Ollama |
+| `undoChanges` | `{ undoId }` | Revierte una entrega |
+| `insertCode` | `{ code }` | Inserta en el cursor del editor activo |
+| `prepareDiff` · `acceptDiff` · `discardDiff` · `discardAllDiffs` | `{ codeKey, code, language? }` · `{ proposalId, codeKey }` | Diff de un bloque contra el archivo activo |
+| `openExternal` | `{ url }` | Abre un enlace; solo `http`, `https` y `mailto` |
+| `openFile` | `{ path }` | Abre un archivo cambiado, solo dentro de la carpeta de trabajo |
+| `copyToClipboard` | `{ text }` | Respaldo cuando `navigator.clipboard` falla en el webview |
+| `getContext` | — | Reenvía el contexto del editor |
 
-SendMessagePayload contiene sessionId, model, messages, isSwarmMode, autoContext, webSearchEnabled, skillKey, requestId y mediaItems. Los roles admitidos son user, assistant y system. Cada mediaItem tiene category, name, mimeType y size; texto incluye content y audio/imagen incluye una data URL.
+## Extensión → webview
 
-Límites: 12 textos de 64 KB cada uno y 160 KB total; imágenes PNG/JPEG/WebP/GIF hasta 8 MB cada una; audio hasta 12 MB por solicitud; binarios arrastrados hasta 20 MB combinados. Se rechazan enlaces simbólicos, tipos no admitidos y nombres sensibles. Arrastrar una carpeta la establece como carpeta de trabajo.
+| Tipo | Payload |
+|---|---|
+| `modelsList` | `{ models: [{ id, name, group }], defaultModel }`; `group` es `auto`, `free`, `local` o `paid` |
+| `activeContext` | `{ activeEditor: { fileName, relativePath, language, lineCount, hasSelection } \| null, selectedFolder, selectedFolderPath }`. Sin contenido de archivos; se agrupa cada 150 ms y solo con el panel visible |
+| `historyList` | `{ sessions: [{ id, title, model, skillKey, messageCount, createdAt, updatedAt, hasWorkspaceScope }] }`: resúmenes sin mensajes |
+| `sessionLoaded` | `{ session }` |
+| `apiConfig` | `{ secrets: { <clave>: { configured, hint? } }, legacySecrets: [{ key, label }], groqFreeEnabled, freeCloudEnabled, ollamaUrl, smartRouterUrl }`. Nunca la clave; `hint` son sus 4 últimos caracteres |
+| `apiConfigSaved` | `{ success, message?, field? }` |
+| `testProvidersResult` | Estado por proveedor: `online`, `error-<código>`, `offline`, `model-unavailable`, `not-configured`, `not-enabled`, `disabled` o `checking-*` |
+| `taskPlan` | `{ title, goal, intent, steps[], agents[], subtasks[] }` |
+| `swarmProgress` | `{ agentId, agent?, state, status, model? }`, con `state` = `queued`, `working`, `completed`, `failed` o `skipped`; los subagentes son `subagent-N` |
+| `aiResponse` | `{ content, provider, requestId, fileChanges?, undoId?, warning?, transcribedPrompt?, revertedUndoId? }` |
+| `requestCancelled` | `{ requestId }` |
+| `error` | `{ message, requestId?, kind? }`; `kind: 'warning'` cuando no quedó nada que enviar (adjuntos descartados) |
+| `notice` | `{ message, kind }` |
+| `status` | `{ loading, requestId }` |
+| `command` | `{ action: 'newChat' \| 'history' \| 'settings' }`. Se encola si el webview aún no está listo |
+| `activeSelection` | `{ selectedText, language, actionType }`. Comandos del menú contextual; también se encola |
+| `folderSelected` · `filesImported` · `undoResult` | carpeta elegida · adjuntos importados y omitidos · resultado de revertir |
+| `localModelRecommendation` · `localModelProgress` | Modelo local de Ollama |
+| `diffPrepared` · `diffResolved` · `diffError` | `{ codeKey, proposalId }` · `{ codeKey, outcome }` · `{ codeKey, message }` |
+| `audioStatus` | `{ text: '' }`; solo se envía para limpiar el estado al terminar |
 
-## Extension Host → Webview
+`fileChanges` describe cada ruta con su acción: `creado`, `editado`, `borrado` o `renombrado`.
 
-modelsList devuelve modelos; activeContext incluye editor y carpetas; taskPlan incluye objetivo, pasos y subtareas; swarmProgress informa agente, estado, acción y modelo; filesImported lista adjuntos/omitidos; aiResponse entrega texto, proveedor, fileChanges y undoId; audioStatus/audioTranscript comunican transcripción; diffPrepared/diffResolved/diffError comunican el estado Diff; undoResult, error y status informan reversión, errores y carga.
+Eliminados en la 1.2.0:
 
-fileChanges describe cada ruta y acción: creado, editado, borrado o renombrado. undoId identifica la entrega reversible.
+- `execTerminal`, que mandaba cualquier texto a una terminal.
+- `saveChat` y `selectWorkspaceFolder`, que no tenían emisor.
+- `audioTranscript`.
 
-## API Smart AI Router
+## Parche de ajustes (`saveApiConfig`)
 
-Base: http://localhost:3000
+```json
+{
+  "secrets": { "geminiApiKey": "clave nueva" },
+  "clearSecrets": ["xaiApiKey"],
+  "groqFreeEnabled": false,
+  "freeCloudEnabled": true,
+  "ollamaUrl": "http://localhost:11434",
+  "smartRouterUrl": "http://localhost:3000"
+}
+```
 
-- GET /health: estado, `costPolicy: zero-cost-only`, disponibilidad del enrutador OpenRouter gratuito y Ollama.
-- GET /api/models: `smart-router`, modelos OpenRouter con ID `:free` y precio de entrada/salida igual a cero confirmado en vivo, y modelos Ollama instalados. Cuando están disponibles, las familias Qwen, DeepSeek, MiniMax/Kimi y GLM aparecen primero.
-- GET /v1/models: catálogo OpenAI compatible.
-- POST /v1/chat/completions: chat OpenAI compatible; model=auto o smart-router inicia la cascada.
+Lo que no viene en el parche no se toca. Todo se valida antes de escribir nada:
 
-La extensión acepta `google/gemini-3.8-flash` cuando se configura una clave Gemini; hace la llamada directa a `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`. En `smart-router`, intenta Gemini primero y, ante un fallo, puede intentar Groq si está activado. Groq utiliza exclusivamente `qwen/qwen3.8-27b` en `https://api.groq.com/openai/v1/chat/completions`; `GET /models` verifica que el ID siga disponible. Una sola opción en ⚙️ APIs habilita Groq para el selector y para el modo automático. Limita la concurrencia a uno; si ya atiende una solicitud, el resto de los agentes omite Groq y continúa al Smart AI Router. También omite imágenes y contexto mayor a 24.000 caracteres. La solicitud usa un máximo de 1.200 tokens de salida y se compacta para reducir uso de cuota.
+- Ollama solo en este equipo: `localhost`, `127.0.0.1` o `[::1]`.
+- El Smart Router acepta cualquier URL `http(s)`.
+- Las claves no pueden tener espacios.
 
-La lista `qwen/qwen3.8-27b` se encuentra en la tabla oficial de límites Free de Groq (base publicada: 30 RPM, 1.000 RPD, 8.000 TPM y 200.000 TPD), pero Groq factura por token en Developer. BSCL no puede consultar ni fijar el plan de facturación de la cuenta; debe mantenerse en Free y sin método de pago para evitar cargos. Las claves Groq se guardan en SecretStorage. Modelo manual: `groq:qwen/qwen3.8-27b`; se bloquean todos los demás IDs de Groq.
+Groq entra en Automático solo con la casilla marcada **y** con clave.
 
-El circuito de proveedor mantiene una pausa ante errores: cuota diaria hasta 24 h, límites por minuto 60 s, clave/permisos 10 min, timeout/5xx 60 s y otros errores 2 min; usa `Retry-After`, detalles de reintento y tiempos de reinicio de cuota reportados, con máximo de 24 h. La pausa se reinicia al cambiar la clave y no persiste tras reiniciar VS Code. Gemini conserva un máximo de tres solicitudes automáticas simultáneas y límite de 60 s. La comprobación de Gemini usa `GET /v1beta/openai/models` sin inferencia. La clave Gemini se guarda en SecretStorage; el costo cero requiere que el proyecto se mantenga sin facturación vinculada.
+Claves editables: `geminiApiKey`, `groqApiKey`, `openRouterApiKey`, `xaiApiKey` y
+`metaApiKey`. Las de proveedores retirados (`cerebrasApiKey`, `sambanovaApiKey`,
+`customApiKey`, `openCodePassword`) solo se pueden borrar.
 
-IDs remotos permitidos por Smart AI Router: `router:openrouter/<id>:free`, `router:openrouter/openrouter/free` y `openrouter:<id>:free`. Cada selección `:free` se vuelve a comprobar en el catálogo público de precio antes de enviarse; si no se confirma, se bloquea con HTTP 503. `smart-router`/`auto` prioriza modelos gratuitos chinos cuando aparecen en el catálogo, prueba `openrouter/free` y después el fallback Ollama que quepa en la RAM libre. El servidor Smart AI Router bloquea Gemini, Groq, SambaNova, OpenCode y APIs personalizadas; Gemini y Groq Free solo se llaman directamente desde la extensión. El selector omite IDs cloud obsoletos y las sesiones antiguas con dichos IDs se reencaminan por la cascada automática gratuita. Agotamiento de modelos gratuitos o falta de memoria responde HTTP 503 con `error.message` en español. El buscador web de OpenRouter y la transcripción Gemini están desactivados para evitar cargos.
+## Límites de adjuntos
 
-Configuración VS Code: bsclAi.smartRouterUrl (http://localhost:3000), bsclAi.ollamaUrl (http://localhost:11434), bsclAi.defaultModel (smart-router) y bsclAi.obsidianVaultPath (vacío). La clave OpenRouter puede configurarse en ⚙️ APIs para selección explícita de modelos `:free`, y en el `.env` local del router para el modo automático. Las claves antiguas de proveedores bloqueados se conservan, pero no se consultan ni se usan.
+| Tipo | Límite |
+|---|---|
+| Texto y código | 12 archivos; 64 KB cada uno y 160 KB en total |
+| Imágenes PNG, JPEG, WebP y GIF | 8 MB cada una; 20 MB entre todas (webview) |
+| Audio | No se admite: se descarta con un aviso |
+| Nombres sensibles (`.env`, `id_rsa`, `*.pem`, `credentials.json`…) | Se rechazan |
+
+## Smart AI Router
+
+Servidor local aparte. Por defecto está en `http://localhost:3000`.
+
+| Endpoint | Uso desde la extensión |
+|---|---|
+| `GET /health` | **Probar conexiones** en Ajustes |
+| `GET /api/models` | Lista de modelos del router en el selector |
+| `POST /v1/chat/completions` | Paso 4 de Automático (`model: "auto"`) y modelos `router:` elegidos a mano |
+
+## Proveedores directos
+
+Todos usan la API compatible con OpenAI (`<base>/chat/completions`), salvo Pollinations y
+Ollama.
+
+| Modelos | Base |
+|---|---|
+| Gemini (Automático o elegido a mano) | `https://generativelanguage.googleapis.com/v1beta/openai` |
+| `groq:` | `https://api.groq.com/openai/v1` |
+| `openrouter:` (solo IDs `:free`) | `https://openrouter.ai/api/v1` |
+| `opencode:` (solo modelos gratuitos de OpenCode Zen) | `https://opencode.ai/zen/v1` |
+| `cerebras:` (clave heredada, crédito de prueba) | `https://api.cerebras.ai/v1` |
+| `grok:` / `xai:` (de pago) | `https://api.x.ai/v1` |
+| `meta:` (de pago) | `https://api.meta.ai/v1` |
+| `free-cloud:` | `https://text.pollinations.ai/` |
+| ID sin prefijo | Ollama, `POST {ollamaUrl}/api/chat` |
+
+Las claves se envían solo en la cabecera `Authorization` del proveedor correspondiente.

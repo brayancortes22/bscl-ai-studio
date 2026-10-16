@@ -3,6 +3,7 @@
 - **Proyecto:** BSCL AI Studio
 - **Autor y decisor:** Brayan Stid Cortés Lombana (`bscl`)
 - **Formato:** Architecture Decision Records (ADR)
+- Los ADR-020 a ADR-026 se tomaron en la revisión 1.2.0 (2026-10-15) y están pendientes de la aprobación del autor.
 
 ## ADR-001: Enrutamiento por intención y revisiones concurrentes
 
@@ -40,6 +41,8 @@ Las imágenes deben llegar a un modelo con visión sin crear archivos temporales
 
 **Estado:** Implementado en v0.4.0; transcripción de audio adjunto con Gemini en v0.6.0.
 
+**Actualización 1.2.0:** las imágenes siguen igual. La transcripción de audio está desactivada para no generar costes y los adjuntos de audio se retiraron del panel (ver ADR-026).
+
 ## ADR-003: Ruta de Obsidian configurable
 
 ### Contexto
@@ -75,6 +78,10 @@ Las preguntas actuales requieren navegación real y citas; Ollama local o una re
 
 **Estado:** Implementado en v0.6.0.
 
+## ADR-006
+
+**Actualización 1.2.0:** desactivado. La búsqueda web de OpenRouter puede cobrar aparte, así que no se llama en modo sin coste. Las preguntas de actualidad se responden sin Internet y con un aviso. El botón de búsqueda web se retiró (ADR-026).
+
 ## ADR-006: Transcribir archivos de audio antes de clasificar la solicitud
 
 ### Contexto
@@ -92,6 +99,8 @@ La extensión admite archivos de audio comunes hasta 12 MB totales y transcribe 
 - El video y los archivos de audio mayores al límite no se procesan.
 
 **Estado:** Implementado en v0.6.0.
+
+**Actualización 1.2.0:** sustituido por ADR-026. La transcripción está desactivada; un adjunto de audio se descarta con un aviso y la petición sigue con el texto.
 
 ## ADR-007: Interpretación visible y conservadora de tareas
 
@@ -271,6 +280,8 @@ La extensión 0.9.4 incorpora `ProviderCooldown` en memoria y limita a tres las 
 
 **Estado:** Implementado en extensión 0.9.4; Smart AI Router permanece en 1.4.1.
 
+**Actualización 1.2.0:** los enfriamientos son por modelo, salvo dos casos que pausan todo el proveedor: la clave rechazada (`:auth`, 10 min) y la falta de conexión (`:net`, 45 s; 3 min si es timeout de conexión). Valores por modelo: cuota diaria 24 h, límite por minuto 60 s, otro 429 3 min, timeout 3 min, 5xx 45 s. Hay plazo total y cancelación (ADR-023).
+
 ## ADR-017: Groq Qwen Free opcional según Figma AI Copilot
 
 ### Contexto
@@ -288,6 +299,8 @@ Cerebras queda fuera porque ofrece crédito de prueba limitado y opción de pago
 
 **Estado:** Implementado en extensión 0.9.5; Smart AI Router permanece en 1.4.1.
 
+**Actualización 1.2.0:** la casilla vuelve a mandar. Hasta la 1.1.0, guardar una clave de Groq activaba Groq en Automático aunque la casilla estuviera desmarcada. Ahora hacen falta la casilla **y** la clave, y viene apagada por defecto. En Automático, Groq admite hasta 2 llamadas a la vez y prueba 5 modelos.
+
 ## ADR-018: Cascada Multi-Modelo de Figma AI Copilot, Enrutamiento por Rol y Auto-Reparación JSON
 
 ### Contexto
@@ -304,6 +317,8 @@ En extensión 0.9.7 y Smart AI Router 2.0.0:
 
 **Estado:** Implementado en extensión 0.9.9 y Smart AI Router 2.0.0.
 
+**Actualización 1.2.0:** Cerebras sale de Automático: su cuenta es de crédito de prueba y la clave no tenía campo en la interfaz. La Nube pública sigue como último recurso, pero solo en chat directo, sin imágenes y sin ningún contexto del proyecto, y recibe solo el último turno. OpenRouter entra en Automático antes que el Smart Router.
+
 ## ADR-019: Auto-Detección de Sub-Proyectos, Edición Quirúrgica (`SEARCH / REPLACE`) y Bucle de Herramientas (`ReAct`)
 
 ### Contexto
@@ -317,4 +332,147 @@ En extensión 1.0.0:
 
 **Estado:** Implementado en extensión 1.0.0.
 
+**Actualización 1.2.0:** la carpeta elegida por el usuario siempre manda. La autodetección solo actúa sin carpeta elegida, compara por palabra completa (antes «rápido» encajaba con `api/`) y solo considera subproyectos reales: carpetas con `package.json`, `.git`, `pyproject.toml`… El deshacer usa la raíz guardada en cada entrega.
 
+## ADR-020: Interfaz nativa con las variables del tema de VS Code
+
+### Contexto
+El panel usaba una paleta propia fija (azul neón sobre fondo casi negro) y no seguía el tema del usuario.
+
+Medido en un panel de 400 px:
+
+- 69 de 109 textos estaban por debajo de 11 px.
+- La cabecera de tres filas se desbordaba.
+- Había 24 emojis como iconos.
+- La tarjeta fija del enjambre tapaba 312 de 602 px del chat.
+
+### Decisión
+- `styles.css` solo usa variables `--vscode-*`, con fallbacks dentro de `var()`.
+- Tipografía y densidad del editor: 13 px de lectura, 11 px como mínimo.
+- Iconos SVG propios que toman el color del texto.
+- Nuevo chat, Historial y Ajustes pasan a la barra del panel (`menus.view/title`).
+- El progreso de los agentes va dentro de la respuesta, en una tarjeta plegable.
+
+### Consecuencias
+- El panel sigue el tema claro, oscuro y de alto contraste. Textos bajo 11 px: 0 de 65. Colores
+  fijos: 135 → 4. Área de chat: 602 → 704 px.
+- Los botones de la barra del panel solo se ven al pasar el ratón o con el panel enfocado
+  (comportamiento estándar de VS Code).
+- `tools/webview-preview/` permite revisar el diseño en el navegador sin el Extension Host.
+
+**Estado:** Propuesto en la revisión 1.2.0, pendiente de aprobación del autor.
+
+## ADR-021: Claves enmascaradas y ajustes guardados por parche
+
+### Contexto
+`getConfig` enviaba todas las claves en claro al webview en cada carga. El formulario reescribía
+toda la configuración: guardar antes de que cargara, o con un campo vacío, borraba claves.
+
+### Decisión
+El webview recibe `{ configured, hint }` por clave (`hint` = 4 últimos caracteres). Al guardar
+envía un parche: solo las claves nuevas y las que se piden borrar.
+`ConfigManager.applySettingsPatch` valida todo antes de escribir nada y devuelve el campo del
+error.
+
+### Consecuencias
+- Ninguna clave completa llega al DOM del webview.
+- Lo que no se toca se conserva. Las claves de proveedores retirados se pueden borrar desde
+  Ajustes.
+
+**Estado:** Propuesto en la revisión 1.2.0, pendiente de aprobación del autor.
+
+## ADR-022: Ajustes solo de usuario (`scope: application`)
+
+### Contexto
+`bsclAi.smartRouterUrl` se podía fijar en el `.vscode/settings.json` de un repositorio. Al
+abrirlo, las conversaciones, con código del workspace, se enviaban a ese servidor. Lo mismo
+valía para `defaultModel`, con el que se podía preseleccionar un modelo de pago.
+
+### Decisión
+Los cuatro ajustes `bsclAi.*` llevan `scope: application`. `ConfigManager` los lee con
+`inspect().globalValue`. `defaultModel` ignora los modelos de pago y Ollama exige loopback.
+
+### Consecuencias
+Un repositorio ya no puede cambiar a dónde se envían las conversaciones ni qué proveedor se
+usa. Configurar un Smart Router remoto sigue siendo posible desde los ajustes de usuario.
+
+**Estado:** Propuesto en la revisión 1.2.0, pendiente de aprobación del autor.
+
+## ADR-023: Cancelación y plazo global por llamada
+
+### Contexto
+No había forma de cancelar. Sumando los timeouts de la cascada, el peor caso de un mensaje en
+Automático era de unos 853 s (calculado, no medido), y cada agente del enjambre podía repetirlo.
+
+### Decisión
+- Cada petición tiene un `AbortController`.
+- `AiClient.setAbortSignal(signal)` lo combina con un plazo de 170 s por llamada a
+  `sendMessage`, y cada `fetch` usa `AbortSignal.any`.
+- Las cascadas y el enjambre relanzan el `AbortError` sin registrar enfriamiento.
+- Si se cancela, no se escribe ningún archivo.
+
+### Consecuencias
+Detener responde enseguida. Un plazo vencido es un error (`BSCL_DEADLINE`) y una cancelación
+no lo es (`requestCancelled`). Se procesa una petición a la vez por panel.
+
+**Estado:** Propuesto en la revisión 1.2.0, pendiente de aprobación del autor.
+
+## ADR-024: Confirmar los cambios arriesgados
+
+### Contexto
+Borrados, renombrados y reescrituras completas se aplicaban sin confirmación. Un modelo
+gratuito puede devolver un archivo truncado («// resto igual»). El deshacer no cubre ediciones
+posteriores del usuario.
+
+### Decisión
+- `WorkspaceChangeManager.assessRisk` detecta borrados, renombrados y archivos que pierden más
+  del 50 % de su tamaño. La extensión pide confirmación modal con tres salidas: *Aplicar todo*,
+  *Solo crear y editar* o cancelar.
+- Deshacer por texto también pide confirmación.
+- Cada archivo lleva la huella (`baseHash`) de lo que se leyó. Si el disco cambió durante la
+  generación, la entrega se rechaza.
+
+### Consecuencias
+Un clic más en las entregas destructivas. No se pisa trabajo guardado durante la generación.
+
+**Estado:** Propuesto en la revisión 1.2.0, pendiente de aprobación del autor.
+
+## ADR-025: Un único módulo de datos sensibles
+
+### Contexto
+El regex de redacción estaba copiado en cinco archivos y fallaba en los dos sentidos. Alteraba
+código normal (`if (password === confirm)`, `token => …`) y dejaba pasar `OPENAI_KEY=…`, bloques
+PEM y credenciales en URLs. El filtro de nombres bloqueaba `token.service.ts` o `tokenizer.js`.
+
+### Decisión
+`src/sensitive-data.js` es la fuente única:
+
+- `isSensitiveFileName`, `isSensitivePath`, `redactSecrets` y `safeFileContent`.
+- Solo redacta literales: cadenas entre comillas, variables `*_KEY`, `*_TOKEN`…, formatos de
+  token conocidos, credenciales en URLs y PEM.
+- Los valores sin comillas solo se redactan en archivos de configuración.
+- El patrón de nombres vive en `webview/sensitive-names.js`, compartido con el webview.
+
+### Consecuencias
+Menos falsos positivos y menos fugas, con tests de los dos lados. Lo que no tenga un formato
+reconocible no se detecta.
+
+**Estado:** Propuesto en la revisión 1.2.0, pendiente de aprobación del autor.
+
+## ADR-026: Retirar el micrófono, los adjuntos de audio y el botón de búsqueda web
+
+### Contexto
+VS Code no concede el micrófono a los webviews, así que el dictado solo producía errores. La
+transcripción de audio está desactivada, así que un adjunto de audio hacía fallar toda la
+petición. El botón de búsqueda web no buscaba nada y multiplicaba las llamadas al planificador y
+a los subagentes.
+
+### Decisión
+Se retiran los tres controles. Un audio que llegue igualmente se descarta con un aviso y la
+petición sigue con el texto.
+
+### Consecuencias
+Menos controles rotos. Si vuelve un proveedor de búsqueda o transcripción que no pueda cobrar,
+habrá que reintroducirlos con su propio ADR.
+
+**Estado:** Propuesto en la revisión 1.2.0, pendiente de aprobación del autor.

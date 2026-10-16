@@ -1,43 +1,74 @@
-# Manual operativo: BSCL AI Studio
+# Manual operativo de BSCL AI Studio
 
-- **Extensión:** 0.9.6 · **Router:** 1.4.1 · **Fecha:** 2026-10-13
+## Requisitos
 
-## Requisitos y arranque
+- VS Code 1.90 o superior.
+- Node.js para empaquetar y pasar los tests (`npm test` usa patrones glob de `node --test`:
+  Node 22 o superior).
+- Opcionales: Smart AI Router en `http://localhost:3000` y Ollama en `http://localhost:11434`.
 
-VS Code 1.90+, Node.js 18+ y, para la ruta cloud, Smart AI Router en http://localhost:3000. Ollama es opcional.
+## Probar, previsualizar y empaquetar
 
-En PowerShell, abre C:\Users\NITRO ACER\Desktop\proyectos con ia\smart-ai-router y ejecuta `node src/server.js`. Comprueba `/health`; debe informar versión 1.4.1 y `costPolicy: zero-cost-only`. Si el puerto ya está ocupado, identifica el proceso antes de cerrarlo.
+```powershell
+npm test          # batería completa con node:test
+npm run preview   # panel en el navegador: http://localhost:5178/?scene=conversation&theme=dark
+npm run package   # genera bscl-ai-studio-<versión>.vsix
+```
 
-## Empaquetar e instalar
+Instala el `.vsix` con **Extensions: Install from VSIX…** (o
+`code --install-extension <archivo>.vsix --force`) y ejecuta **Developer: Reload Window**. Las
+claves guardadas se conservan al actualizar.
 
-Desde bscl-ai-studio ejecuta `npm run package`. Instala `bscl-ai-studio-0.9.6.vsix` con `code --install-extension` y `--force`. Luego ejecuta Developer: Reload Window en VS Code. Las claves guardadas en SecretStorage se conservan al actualizar.
+`dev-watch.ps1` reempaqueta e instala la extensión cada vez que guardas un archivo. Las rutas
+del proyecto y de `Code.exe` están escritas a mano al principio del script: cámbialas por las
+de tu equipo antes de usarlo.
 
-## Proveedores y modelos
+## Publicar
 
-Gemini 3.8 Flash va primero en automático. Para habilitar Groq, pega una clave de una cuenta Groq Free y activa “Usar Groq Free automáticamente después de Gemini” solo tras verificar que la cuenta no está en Developer y no tiene pago asociado. BSCL solo usa Qwen 3.8 27B, serializa las solicitudes, reduce el contexto y limita la salida a 1.200 tokens; al detectar cuota agotada o recibir un tiempo de reintento, pausa Groq y continúa con Smart AI Router. El catálogo verifica el ID de modelo, pero no puede leer el plan de facturación.
+1. Sube la versión en `package.json` y añade la entrada en `CHANGELOG.md`.
+2. Crea y sube una etiqueta `v<versión>`.
+3. `.github/workflows/release.yml` pasa los tests, empaqueta y publica en el Marketplace con el
+   secreto `MARKETPLACE_TOKEN` del repositorio.
 
-Gemini conserva hasta tres llamadas automáticas simultáneas y su pausa compartida por cuota, credenciales o timeout. La extensión aprovecha cabeceras de cuota y tiempos de reinicio cuando el proveedor los expone; Gemini se pausa ante respuestas de cuota agotada. Las claves Google y Groq se guardan en SecretStorage de VS Code. El proyecto Google también debe seguir en Free y sin facturación vinculada. Smart AI Router usa Ollama y modelos OpenRouter con precio de entrada/salida publicado de $0; actualiza el catálogo antes de cada solicitud y bloquea modelos cuyo precio gratuito no puede confirmar. Prioriza Qwen, DeepSeek, MiniMax/Kimi y GLM si el catálogo los ofrece; `openrouter/free` sirve de respaldo. Para selección explícita, guarda la clave OpenRouter en ⚙️ APIs. Para el modo automático del router, agrega `OPENROUTER_API_KEY` al `.env` local. No agregues saldo. `/api/models` enumera solo modelos OpenRouter gratuitos compatibles y Ollama. Cerebras, OpenAI API, SambaNova, OpenCode y APIs personalizadas quedan excluidos del modo automático.
+El `publisher` de `package.json` (`bscl`) debe coincidir con el del token.
 
-## Ollama y memoria
+## Configurar proveedores
 
-El fallback automático considera modelos de hasta aprox. 1,8 GB y necesita como mínimo 2,8 GB de RAM libre, además del margen por tamaño. Las llamadas locales se serializan y el modelo se descarga al terminar. Un modelo manual más grande también tiene control de RAM. El router no descarga modelos automáticamente.
+En el panel, **Ajustes** (icono de la barra del panel):
 
-Ollama procesa una solicitud a la vez, limita contexto/salida y descarga el modelo de memoria al terminar. El router omite la inferencia cuando no hay suficiente RAM libre. Descargar un modelo usa red y disco, pero no requiere una API paga; verifica que la descarga haya terminado con `ollama list`. No se carga automáticamente un modelo si el equipo está justo de memoria.
+1. Pega la clave de Gemini (Google AI Studio). Es la primera opción de Automático.
+2. Para usar Groq en Automático, pega su clave **y** marca la casilla. Hazlo solo si la cuenta
+   sigue en el plan Free y sin método de pago: la extensión no puede comprobarlo.
+3. OpenRouter solo usa modelos `:free`. No añadas saldo si quieres mantener el coste en cero.
+4. **Probar conexiones** consulta solo los listados de modelos: no genera coste de inferencia.
 
-## Adjuntos, permisos y reversión
+xAI Grok y Meta Muse cobran por uso y solo se usan si eliges uno de sus modelos.
 
-Abre o arrastra una carpeta de trabajo; también puedes elegirla con el selector. Adjunta código/documentación, imágenes o audio dentro de los límites de API_REFERENCE.md. La extensión respeta los permisos de Windows. Verifica que puedas crear archivos manualmente en la carpeta elegida.
+## Modelo local
 
-La implementación puede crear, editar, borrar y renombrar archivos, muestra los cambios y permite revertir hasta cinco entregas recientes. Si un archivo cambió después, se rechaza la reversión para preservarlo.
+**Analizar equipo** mira la RAM total y libre y recomienda un modelo de Ollama que quepa;
+**Descargar recomendado** lo descarga. La memoria libre cambia con otras aplicaciones
+abiertas: un modelo descargado no siempre se puede cargar. Ollama nunca entra en Automático;
+se usa eligiéndolo en el selector.
 
-## Costo cero y búsqueda web
+## Problemas frecuentes
 
-El modo automático usa Gemini Free, Groq si activaste su única casilla y confirmaste que sigue en Free, modelos OpenRouter `:free` verificados y Ollama. Cerebras ofrece créditos de prueba limitados; OpenAI API puede facturar y Pollinations recibe prompts en un servicio público, por eso BSCL no los llama. El router no compra créditos ni cambia a un modelo pago. Los límites se basan en respuestas y cabeceras disponibles del proveedor; no hay una API común que permita leer anticipadamente todas las cuotas.
+| Mensaje o síntoma | Causa y qué hacer |
+|---|---|
+| «No se pudo generar respuesta con las IAs en la nube…» | Todos los pasos de Automático fallaron. El mensaje lista cada fallo. Revisa las claves en Ajustes → **Probar conexiones**, o espera si es cuota agotada |
+| «… omitido (clave o permisos; reintento en N s)» | La clave fue rechazada (401/403). Corrígela en Ajustes |
+| «Se agotó el plazo total de 170 s…» | Ningún proveedor respondió a tiempo. Reintenta; si se repite, comprueba la red o el Smart Router |
+| «No se pudo conectar con Ollama local…» | Ollama no está en marcha o la URL no es la correcta (Ajustes → Local) |
+| «<archivo> cambió durante la generación; vuelve a enviar la tarea.» | Guardaste ese archivo mientras el modelo trabajaba. No se pisa: repite la petición |
+| VS Code pide confirmar borrados o renombrados | El Programador quiere borrar, renombrar o reducir un archivo a menos de la mitad. *Solo crear y editar* aplica el resto |
+| «La carpeta elegida guarda credenciales…» | La carpeta de trabajo es `.ssh`, `.aws`, `.docker`… Elige la del proyecto |
+| Aviso: el audio no se admite | La transcripción está desactivada; escribe el mensaje |
+| «Esa entrega ya no se puede revertir…» | Solo se guardan las 5 últimas entregas y hasta un tamaño máximo |
 
-La búsqueda web de OpenRouter puede cobrar aparte incluso si el modelo principal es gratuito, por eso la extensión no la llama en este modo. Las solicitudes de investigación muestran una advertencia y una respuesta sin Internet. La transcripción cloud Gemini también está desactivada.
+## Qué no hace
 
-## Timeout y límites
-
-“The operation was aborted due to timeout” indica que se agotó el plazo del router o del modelo gratuito. Revisa versión 1.4.1 en `/health`, modelos en `/api/models`, clave OpenRouter y cuota gratuita. Si `providers.ollama` aparece `false`, inicia Ollama Desktop; luego consulta `ollama list`. Si falta RAM, la solicitud local se omite por seguridad. El modo automático no descarga modelos.
-
-QA es revisión generativa y no compila ni ejecuta tests. La extensión no ejecuta terminal autónomamente ni se instala/actualiza a sí misma.
+- No ejecuta comandos en la terminal.
+- No busca en Internet en modo sin coste: avisa de que la respuesta no consultó la web.
+- No transcribe audio.
+- QA es una revisión generativa: no compila ni ejecuta tests.
+- No se instala ni se actualiza a sí misma.

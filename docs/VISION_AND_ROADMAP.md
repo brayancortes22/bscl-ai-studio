@@ -1,29 +1,72 @@
 # Estado y hoja de ruta de BSCL AI Studio
 
-- **Versión documentada:** 1.0.0 · **Revisión:** 2026-10-13
+## Qué hay hoy (1.2.0)
 
-## Implementado
+**Panel.**
 
-Chat en español con insignia de versión activa (`v1.0.0`) visible en la parte superior del panel; enrutamiento **100% Cloud en modo Automático** (cero carga automática en Ollama local para no ralentizar el PC) consciente del rol de cada agente (`coder`, `architect`, `qa`, `critic`, `planner`, `subagent`); cascada multi-modelo inspirada en **Figma AI Copilot** (Gemini 2026 Cascade -> Cerebras/Groq LPU multi-modelo -> Smart AI Router Cloud -> OpenRouter `:free` con puntuación de capacidad -> Nube Gratuita Pública Sin API Key) y auto-reparación de JSON truncado (`repairTruncatedJson`) en `CoderAgent` y `TaskPlanner`.
+- Chat en español con la apariencia nativa de VS Code (tema claro, oscuro y alto contraste).
+- Historial con búsqueda y ajustes con claves enmascaradas.
+- Botón Detener que cancela de verdad.
 
-Auto-detección inteligente de sub-proyectos (`WorkspaceScopeResolver`) cuando se abre una carpeta raíz con múltiples proyectos (`proyectos con ia`) a partir del prompt o del archivo abierto en el editor; edición quirúrgica híbrida por bloques `SEARCH / REPLACE` (`PatchApplier`) además de creación/edición/borrado/renombrado completo de archivos; bucle de herramientas agénticas bajo demanda (`AgentToolLoop`: `read_file`, `search_code`, `list_files`) y autoverificación sintáctica (`node --check` y `JSON.parse`) con autocorrección antes del guardado y reversión completa (`Deshacer`).
+**Agentes.**
 
-Los roles de investigación, arquitectura, programación, crítica visual y QA aparecen según la tarea. Los planes admiten hasta 100 subtareas cuando se justifican y ejecutan subagentes en paralelo en la nube sin colisionar en el mismo modelo gracias al enfriamiento granular por `proveedor:modelo`.
+- Planificador, Investigador, Arquitecto, Programador, Crítico visual y Auditor QA, elegidos
+  según la intención.
+- Hasta 16 subagentes, 3 a la vez.
+- El Programador edita con parches `SEARCH / REPLACE` o con archivos completos, y puede leer
+  el proyecto con herramientas (`read_file`, `search_code`, `list_files`).
 
-Se puede elegir/arrastrar una carpeta y adjuntar texto/código, imágenes y audio. La implementación puede crear, editar, borrar y renombrar archivos dentro de la carpeta seleccionada. La respuesta muestra archivos cambiados y ofrece revertir hasta cinco entregas. Diff nativo para propuestas manuales.
+**Archivos.**
 
-## Límites confirmados
+- Crear, editar, borrar y renombrar dentro de la carpeta de trabajo.
+- Confirmación para los cambios que pueden perder contenido.
+- Protección contra pisar archivos guardados durante la generación.
+- Deshacer de las 5 últimas entregas.
 
-OpenRouter puede devolver límites gratuitos, saturación o modelos retirados; no se agrega saldo. En cuentas gratuitas el catálogo y la cuota pueden cambiar. Ollama no consume cuota cloud, pero depende de RAM disponible; un modelo descargado no significa que pueda cargarse ahora.
+**Coste.**
 
-El acceso a archivos usa los permisos normales de Windows. Video, streaming progresivo, ejecución autónoma de terminal y sincronización con Obsidian no están implementados. QA es revisión generativa, no tests. La carpeta fuente de BSCL puede seleccionarse y editarse, pero empaquetar/reinstalar/recargar requiere una acción aparte. Los prompts y archivos enviados a nube llegan al proveedor seleccionado.
+- Automático solo usa proveedores gratuitos: Gemini, Groq con casilla, OpenRouter `:free`,
+  Smart AI Router y Nube pública sin contexto.
+- Los de pago (xAI, Meta) solo se usan si se eligen.
+- Plazo total de 170 s por llamada y enfriamientos por modelo y por proveedor.
 
-## Próximas mejoras
+**Calidad.** 263 tests con `node:test` y vista previa del panel sin VS Code.
 
-1. Mostrar diagnóstico por proveedor: disponibilidad, latencia, cuota y último error sin claves.
-2. Añadir confirmación para borrados/renombrados agénticos.
-3. Agregar streaming visible con cancelación y plazo total.
-4. Diseñar índice semántico local con exclusiones por carpeta.
-5. Diseñar integración de Obsidian inicialmente explícita y de solo lectura.
-6. Incorporar validaciones automáticas configurables sin confundirlas con QA generativa.
-7. Rehabilitar investigación web solo cuando exista un proveedor con límite de uso que garantice por diseño que no puede cobrar excedentes.
+## Límites conocidos
+
+- Las cuotas gratuitas cambian sin aviso. La extensión no puede ver si una cuenta tiene
+  facturación vinculada.
+- No hay búsqueda web ni transcripción de audio en modo sin coste.
+- QA es revisión generativa, no ejecuta tests. La verificación previa al guardado solo comprueba
+  la sintaxis (JS/JSON).
+- Las respuestas no se muestran mientras se generan (sin streaming).
+- Lo que se envía a un proveedor en la nube llega a ese proveedor. La redacción de secretos tapa
+  los formatos conocidos, no cualquier dato sensible.
+
+## Pendiente
+
+Decisiones abiertas para el autor:
+
+1. **Aprobar o ajustar las decisiones de la 1.2.0** (ADR-020 a ADR-026 en
+   [DECISIONS.md](DECISIONS.md)): se tomaron en la revisión y están marcadas como propuestas.
+2. **Nube pública elegida a mano.** Hoy recibe la conversación sin el contexto del proyecto. En
+   Automático solo recibe el último turno. Igualarlo cuesta una línea en `ai-client.js`; es una
+   decisión de producto.
+
+Mejoras técnicas:
+
+3. **Presupuesto de contexto para Groq.** Subir el tamaño del contexto compactado podría mejorar
+   las respuestas, pero no se ha medido si provoca errores 413 o 429 en el plan gratuito. Medir
+   antes de cambiar `provider-cascade.js`.
+4. **Streaming** de las respuestas, ya con la cancelación disponible.
+5. **Diagnóstico por proveedor** en Ajustes: latencia, cuota y último error, sin claves.
+6. **Índice semántico local** con exclusiones por carpeta.
+7. **Búsqueda web**, solo con un proveedor que por diseño no pueda cobrar excedentes.
+8. **Ocultar o dar formato** a la línea «VEREDICTO: OK|CORREGIR» con la que terminan las
+   revisiones de QA y del Crítico.
+
+Limpieza:
+
+9. `src/system-tools.js` quedó vacío a propósito y solo lo usa un test: se puede borrar.
+10. `dev-watch.ps1` tiene rutas de un equipo concreto: convendría leerlas de variables de
+    entorno.

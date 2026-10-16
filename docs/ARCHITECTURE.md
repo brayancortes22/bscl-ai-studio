@@ -1,44 +1,153 @@
 # Arquitectura de BSCL AI Studio
 
-- **Versión documentada:** 0.9.7
-- **Router local:** Smart AI Router 2.0.0
-- **Actualizado:** 2026-10-13
+Extensión de VS Code en JavaScript (CommonJS), sin build ni dependencias de npm. Tiene dos
+partes que se comunican por mensajes:
 
-## Componentes y flujo
+- **Extension Host** (`src/`): accede al disco, a VS Code y a los proveedores de IA.
+- **Webview** (`webview/`): la interfaz del panel. No toca el disco ni la red, solo envía
+  mensajes ([protocolo](API_REFERENCE.md)).
 
-| Componente | Responsabilidad |
+## Flujo de una petición
+
+```
+webview (composer.js → main.js)
+  └─ sendMessage ─▶ view-provider.handleUserMessage
+        ├─ RequestInput.prepare        adjuntos: límites, redacción de secretos, avisos
+        ├─ NeuralRouter.classifyTask   intención por reglas (chat, implementación, revisión…)
+        ├─ WorkspaceInspector          archivo activo (vacío si es sensible)
+        ├─ WorkspaceScopeResolver      carpeta de trabajo (la elegida por el usuario manda)
+        ├─ WorkspaceContext.build      contexto del proyecto + huella (baseHash) de cada archivo
+        ├─ modo Agentes o implementación ─▶ AgentSwarm.runSwarm
+        │     modo Chat ─▶ TaskPlanner.plan ─▶ enjambre si es «coding_implementation»
+        │                                     o AiClient.sendMessage
+        ├─ applyResponseChanges        assessRisk → confirmación modal → WorkspaceChangeManager
+        └─ aiResponse ─▶ webview (message-view.js)
+```
+
+Una petición a la vez por panel. **Detener** aborta un `AbortController` que la extensión
+pasa a `AiClient.setAbortSignal`: todas las llamadas de la cascada y del enjambre lo
+respetan, y si se cancela no se escribe ningún archivo.
+
+## Módulos del Extension Host
+
+| Módulo | Responsabilidad |
 |---|---|
-| Webview | Chat, adjuntos, selección de carpeta, estado de agentes, Diff e historial |
-| Extension Host | Acceso a VS Code y disco con los permisos de Windows; valida y coordina |
-| NeuralRouter / TaskPlanner | Clasificar conversación, investigación, revisión e implementación con enrutamiento a `smart-router` |
-| Agentes | Investigar, diseñar, programar y revisar según la tarea con perfiles de rol (`roleHint`) |
-| AiClient / ProviderCascade / ProviderCooldown | Cascada multi-modelo Gemini Free (2026), Groq LPU (`qwen3.8-27b`, `gpt-oss-120b`, `llama-3.3-70b-versatile`, `gpt-oss-20b`, `llama-3.1-8b-instant`), Cerebras Free, Smart AI Router, OpenRouter `:free`, Nube Gratuita Pública Sin API Key y Ollama Local |
-| JsonRepair | Reparación automática de JSON truncado (`repairTruncatedJson`) y extracción de bloques Markdown para `CoderAgent` y `TaskPlanner` |
-| WorkspaceContext / WorkspaceChangeManager | Leer contexto y crear, editar, borrar o renombrar archivos |
-| DroppedFileImporter / RequestInput | Importar y filtrar archivos arrastrados |
+| `extension.js` | Activación, comandos y eventos del editor |
+| `view-provider.js` | Puente con el webview: valida mensajes, orquesta la petición, aplica cambios |
+| `config-manager.js` | Ajustes y claves (SecretStorage); vista enmascarada y guardado por parche |
+| `history-manager.js` | Historial en `globalState`, con límites de tamaño |
+| `ai-client.js` | Envío a proveedores, cascada Automática, visión, plazo global y cancelación |
+| `provider-cascade.js` | Cascadas de Gemini, Groq, OpenRouter y Cerebras con su orden de modelos |
+| `provider-cooldown.js` | Enfriamientos por modelo y proveedor, cupos de concurrencia, errores de cancelación |
+| `model-catalog.js`, `free-cloud-fallback.js` | Catálogos de modelos, grupos de coste y Nube pública |
+| `message-compactor.js` | Recorte de contexto y lectura de cabeceras de cuota |
+| `request-input.js`, `media-processor.js` | Adjuntos de texto e imagen |
+| `neural-router.js` | Clasificación de la intención por reglas |
+| `agent-swarm.js`, `agents/*` | Planificador, Arquitecto, Programador, Crítico, QA, subagentes y herramientas |
+| `json-repair.js` | Extracción de JSON de las respuestas; detecta salidas truncadas |
+| `workspace-context.js`, `workspace-inspector.js`, `workspace-scope-resolver.js` | Contexto del proyecto y del editor |
+| `patch-applier.js`, `workspace-change-manager.js` | Parches `SEARCH/REPLACE`, escritura validada, riesgo y deshacer |
+| `diff-manager.js` | Diff de un bloque de código contra el archivo activo |
+| `dropped-file-importer.js` | Archivos y carpetas arrastrados desde el Explorador |
+| `sensitive-data.js` | Archivos sensibles y redacción de secretos (fuente única) |
+| `brain-context.js` | Prompt base por enfoque y notas marcadas de Obsidian |
 
-El Webview no lee el disco directamente. El Host realiza la operación usando la carpeta abierta en VS Code o la carpeta local seleccionada/arrastrada. Saludos van al chat directo; una tarea no trivial puede mostrar un plan y agentes. Las preguntas que necesitan actualidad se identifican, pero el modo sin costo no hace consultas web: advierte de esa limitación y pide no inventar fuentes.
+## Módulos del webview
 
-Para implementar, WorkspaceContext aporta contexto, CoderAgent prepara operaciones con auto-reparación de JSON y WorkspaceChangeManager valida rutas, tipos, permisos, documentos sin guardar y límites antes de escribir. La respuesta enumera archivos creados/editados/borrados/renombrados y ofrece revertir. La reversión se bloquea si un archivo cambió después.
+Scripts sin build que se cargan en orden desde `index.html`. Todos llevan el nonce de la CSP.
 
-La carpeta fuente de BSCL puede elegirse como workspace para editarla; empaquetar, reinstalar y recargar siguen siendo pasos separados.
+| Módulo | Responsabilidad |
+|---|---|
+| `ui.js` | Creación de nodos sin `innerHTML`, iconos, toasts y vistas superpuestas con foco atrapado |
+| `markdown.js`, `highlight.js` | Markdown seguro (todo se escapa) y resaltado ligero con colores del tema |
+| `message-view.js` | Hilo: mensajes, tarjeta de progreso plegable, errores y archivos cambiados |
+| `code-actions.js` | Copiar, insertar y diff de bloques; enlaces y apertura de archivos |
+| `composer.js` | Cuadro de mensaje, adjuntos, arrastrar y soltar, fichas de carpeta y archivo activo |
+| `history.js`, `settings.js` | Vistas de historial y ajustes |
+| `sensitive-names.js` | Patrón de nombres sensibles compartido con `src/sensitive-data.js` |
+| `main.js` | Estado de la sesión, mensajes con la extensión y persistencia con `getState`/`setState` |
 
-## Modelos y Enrutamiento por Rol (`Role-Aware Cascade`)
+`styles.css` solo usa variables `--vscode-*`, así que el panel sigue el tema del usuario.
 
-Integrando los patrones de **Figma AI Copilot**, tanto `bscl-ai-studio` como `smart-ai-router` ejecutan una cascada multi-modelo con enfriamiento granular por `proveedor:modelo`:
+## Proveedores
 
-1. **Google Gemini Free Cascade (2026):** Recorre automáticamente `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-flash-lite-latest`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.0-flash` y `gemini-3.8-flash` aprovechando las cuotas independientes por modelo en Google AI Studio.
-2. **Cerebras Cloud y Groq Cloud Free Cascade:** Soportan múltiples modelos gratuitos de alta velocidad (`qwen/qwen3.8-27b`, `openai/gpt-oss-120b`, `llama-3.3-70b-versatile`, `openai/gpt-oss-20b`, `llama-3.1-8b-instant`) con hasta 4.096–8.192 tokens de salida para código y priorización de modelos ligeros para `TaskPlanner` y `SubagentRunner`.
-3. **OpenRouter `:free` con Puntuación por Capacidad:** Verifica precio $0 en vivo y puntúa primero a los modelos flagship de código y razonamiento (`qwen3-coder`, `deepseek-r1`, `gpt-oss-120b`, `llama-3.3-70b`, `nemotron`).
-4. **Nube Gratuita Pública Sin API Key (`free-cloud`):** Conmuta a `https://text.pollinations.ai/` (`openai` ➔ `mistral`) cuando no hay claves configuradas o se agotan las cuotas con clave.
-5. **Ollama Local:** Control automático de RAM libre antes de cargar modelos locales.
+**Automático** (`AiClient.sendAutomatic`). Los pasos se recorren en orden hasta que uno
+responde:
 
-## Adjuntos y límites
+1. **Gemini** (8 modelos, ordenados por rol; hasta 3 llamadas simultáneas).
+2. **Groq**, solo con la casilla marcada y clave; nunca con imágenes; hasta 2 llamadas.
+3. **OpenRouter `:free`**: hasta 3 modelos verificados con precio $0 y después
+   `openrouter/free`. Sin imágenes.
+4. **Smart AI Router** local (`POST /v1/chat/completions`, modelo `auto`).
+5. **Nube pública** (Pollinations). Solo si está activada, sin imágenes, en chat directo y sin
+   ningún marcador de contexto del proyecto. Recibe solo el último turno.
 
-Texto/código: 12 archivos, 64 KB cada uno, 160 KB total. Imágenes PNG/JPEG/WebP/GIF: hasta 8 MB c/u. La transcripción cloud de audio está desactivada; usa el dictado del micrófono de VS Code. Medios binarios arrastrados: hasta 20 MB total. Una carpeta arrastrada se usa como workspace, no se copia completa al prompt.
+El planificador y los subagentes prueban Groq antes que Gemini. Automático nunca usa xAI,
+Meta, Cerebras, OpenCode ni Ollama: esos modelos solo se usan si se eligen a mano.
 
-Se filtran nombres sensibles y patrones comunes de claves. Los adjuntos son datos no confiables. Hasta 100 operaciones de archivo y aprox. 1 MB por entrega. No se permiten rutas absolutas, enlaces simbólicos ni directorios protegidos.
+| Plazo por petición | Valor |
+|---|---|
+| Total por llamada a `sendMessage` | 170 s |
+| Gemini, Groq | 45 s por modelo |
+| OpenRouter, Nube pública | 35 s por modelo |
+| Smart AI Router | 90 s |
+| Ollama | 60 s |
 
-Historial y credenciales de extensión se guardan en estado local VS Code; el router conserva sus claves en .env. Los datos enviados a modelos cloud se transfieren al proveedor configurado. Video, terminal autónoma y sincronización con Obsidian no están implementados. QA es generativa, no ejecuta tests.
+Enfriamientos (`provider-cooldown.js`):
 
-Ver [API_REFERENCE.md](API_REFERENCE.md), [RUNBOOK.md](RUNBOOK.md), [DECISIONS.md](DECISIONS.md) y [VISION_AND_ROADMAP.md](VISION_AND_ROADMAP.md).
+| Causa | Pausa |
+|---|---|
+| Clave rechazada (401/403) | 10 min, todo el proveedor |
+| Sin conexión | 45 s, todo el proveedor; 3 min si el fallo es de tiempo de conexión |
+| Cuota diaria (429) | 24 h, solo ese modelo |
+| Límite por minuto (429) | 60 s, solo ese modelo |
+| Otro 429 | 3 min, solo ese modelo |
+| Modelo inexistente (404) | 10 min, solo ese modelo |
+| Timeout del modelo | 3 min, solo ese modelo |
+| Error 5xx | 45 s, solo ese modelo |
+| Otros fallos | 90 s, solo ese modelo |
+| `Retry-After` de cabecera | Se respeta, entre 15 s y 24 h |
+
+Una cancelación del usuario nunca registra un enfriamiento.
+
+**Visión.** Si eliges un modelo gratuito sin visión y adjuntas imágenes, primero se describen
+con Gemini, después con modelos de visión `:free` de OpenRouter y por último con Ollama local.
+Se envían solo las imágenes y una instrucción fija, sin historial. Nunca se usan xAI ni Meta.
+
+## Agentes
+
+`AgentSwarm.runSwarm` elige el flujo según la intención: investigación, arquitectura, revisión
+o implementación. En una implementación actúan el Arquitecto, los subagentes, el Programador
+(que puede usar herramientas de lectura) y la revisión del Crítico y de QA en paralelo, con una
+ronda de autocorrección.
+
+- Subagentes: como máximo 16 y 3 a la vez (2 con búsqueda, 1 con modelo local).
+- Todo agente que empieza termina en `completed`, `failed` o `skipped`.
+- Si se cancela, se relanza el `AbortError` sin seguir con la revisión.
+
+## Archivos
+
+`WorkspaceChangeManager.applyChanges` valida cada ruta antes de escribir:
+
+- dentro de la raíz;
+- sin rutas absolutas, `..`, enlaces simbólicos ni nombres reservados;
+- fuera de `.git`, `node_modules` y `.vscode`;
+- sin archivos sensibles ni carpetas de credenciales.
+
+Límites: hasta 100 operaciones y 1 MB por entrega. Si un archivo cambió en disco desde que se
+leyó (su `baseHash` no coincide), se rechaza la entrega.
+
+El deshacer guarda los bytes originales en base64 dentro de `workspaceState`: hasta 5
+entregas, 1 MB por archivo y 2 MB por entrega. Cada instantánea conserva su raíz.
+
+## Seguridad del webview
+
+- CSP: `default-src 'none'; script-src 'nonce-…'`, estilos solo desde la extensión, sin
+  `'unsafe-inline'`.
+- `localResourceRoots` se limita a `webview/`.
+- Los enlaces los abre la extensión, solo `http(s)` y `mailto`. Los archivos solo se abren
+  dentro de la carpeta de trabajo.
+- Las claves nunca llegan al webview.
+
+Ver también: [API_REFERENCE.md](API_REFERENCE.md), [DECISIONS.md](DECISIONS.md),
+[RUNBOOK.md](RUNBOOK.md) y [VISION_AND_ROADMAP.md](VISION_AND_ROADMAP.md).

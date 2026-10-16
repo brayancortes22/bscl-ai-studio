@@ -242,12 +242,6 @@
     finishRequest();
   }
 
-  function onAudioTranscript(payload = {}) {
-    if (!isCurrent(payload) || !payload.text) return;
-    window.MessageView.setUserText(state.request.userRow, payload.displayText || payload.text);
-    state.request.userEntry.content = payload.text;
-  }
-
   function onSelection({ selectedText, language, actionType } = {}) {
     if (!selectedText) { window.Composer.showNote('Selecciona código en el editor antes de usar esta acción.'); return; }
     const instructions = {
@@ -291,7 +285,6 @@
     aiResponse: onResponse,
     swarmProgress: (payload) => { if (isCurrent(payload)) window.MessageView.updateProgress(payload); },
     taskPlan: (payload) => { if (isCurrent(payload)) window.MessageView.showTaskPlan(payload); },
-    audioTranscript: onAudioTranscript,
     audioStatus: (payload) => { if (payload.text) window.MessageView.setStatus(payload.text); },
     status: (payload) => {
       if (payload.loading || !matches(payload)) return;
