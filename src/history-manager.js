@@ -1,7 +1,29 @@
 /**
- * Gestor Persistente de Historial de Chats (Sessions)
- * Autor: Brayan Stid Cortés Lombana (bscl)
+ * Historial persistente de conversaciones (globalState).
+ *
+ * Límites: globalState se serializa entero en cada escritura y se carga al arrancar
+ * VS Code, así que se acota el número de sesiones, de mensajes por sesión y el tamaño
+ * de cada mensaje guardado. El webview recibe solo resúmenes; los mensajes de una
+ * sesión se piden al abrirla.
  */
+const MAX_SESSIONS = 50;
+const MAX_MESSAGES_PER_SESSION = 120;
+const MAX_STORED_MESSAGE_CHARS = 24000;
+const TITLE_LENGTH = 60;
+
+function clip(text, max) {
+  const value = String(text ?? '');
+  return value.length > max ? `${value.slice(0, max)}\n\n[… recortado al guardar en el historial]` : value;
+}
+
+function makeTitle(messages) {
+  const first = (messages || []).find((message) => message?.role === 'user' && String(message.content || '').trim());
+  if (!first) return 'Conversación sin título';
+  // El título sale de la primera línea con texto, sin bloques de código ni adjuntos.
+  const line = String(first.content).replace(/```[\s\S]*?(```|$)/g, ' ').split('\n').map((part) => part.trim()).find(Boolean) || 'Conversación';
+  return line.length > TITLE_LENGTH ? `${line.slice(0, TITLE_LENGTH - 1).trimEnd()}…` : line;
+}
+
 class HistoryManager {
   constructor(context) {
     this.context = context;
@@ -10,57 +32,66 @@ class HistoryManager {
 
   listSessions() {
     const raw = this.context.globalState.get(this.storageKey, []);
-    return Array.isArray(raw) ? raw : [];
+    return Array.isArray(raw) ? raw.filter((session) => session && typeof session.id === 'string') : [];
+  }
+
+  /** Lo que necesita la vista de historial, sin los mensajes. */
+  listSummaries() {
+    return this.listSessions().map((session) => ({
+      id: session.id,
+      title: session.title,
+      model: session.model,
+      skillKey: session.skillKey,
+      messageCount: Array.isArray(session.messages) ? session.messages.length : 0,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      hasWorkspaceScope: Boolean(session.workspaceScope)
+    }));
   }
 
   getSession(sessionId) {
-    const sessions = this.listSessions();
-    return sessions.find(s => s.id === sessionId) || null;
+    return this.listSessions().find((session) => session.id === sessionId) || null;
   }
 
-  saveSession(sessionData) {
-    if (!sessionData || !sessionData.id) return null;
+  async saveSession(sessionData) {
+    if (!sessionData || typeof sessionData.id !== 'string' || !sessionData.id) return null;
     const sessions = this.listSessions();
-    const idx = sessions.findIndex(s => s.id === sessionData.id);
+    const index = sessions.findIndex((session) => session.id === sessionData.id);
+    const previous = index >= 0 ? sessions[index] : null;
+    const messages = (Array.isArray(sessionData.messages) ? sessionData.messages : [])
+      .filter((message) => message && ['user', 'assistant'].includes(message.role))
+      .slice(-MAX_MESSAGES_PER_SESSION)
+      .map((message) => ({ role: message.role, content: clip(message.content, MAX_STORED_MESSAGE_CHARS) }));
 
-    const firstMsg = (sessionData.messages || []).find(m => m.role === 'user');
-    const autoTitle = firstMsg 
-      ? (firstMsg.content.slice(0, 38).trim() + (firstMsg.content.length > 38 ? '...' : '')) 
-      : 'Conversación sin título';
-
-    const cleanSession = {
+    const clean = {
       id: sessionData.id,
-      title: sessionData.title || autoTitle,
-      createdAt: sessionData.createdAt || Date.now(),
+      title: sessionData.title || previous?.title || makeTitle(messages),
+      createdAt: previous?.createdAt || sessionData.createdAt || Date.now(),
       updatedAt: Date.now(),
-      model: sessionData.model || 'smart-router',
-      skillKey: sessionData.skillKey || 'general',
-      workspaceScope: sessionData.workspaceScope || (sessions[idx]?.workspaceScope) || '',
-      messages: sessionData.messages || []
+      model: sessionData.model || previous?.model || 'smart-router',
+      skillKey: sessionData.skillKey || previous?.skillKey || 'general',
+      workspaceScope: sessionData.workspaceScope || previous?.workspaceScope || '',
+      messages
     };
+    // Una sesión sin título real se retitula cuando llega su primer mensaje con texto.
+    if (clean.title === 'Conversación sin título') clean.title = makeTitle(messages);
 
-    if (idx >= 0) {
-      sessions[idx] = cleanSession;
-    } else {
-      sessions.unshift(cleanSession);
-    }
-
-    // Limitar a las últimas 50 conversaciones para no sobrecargar el almacenamiento
-    const trimmed = sessions.slice(0, 50);
-    this.context.globalState.update(this.storageKey, trimmed);
-    return cleanSession;
+    if (index >= 0) sessions.splice(index, 1);
+    sessions.unshift(clean);
+    await this.context.globalState.update(this.storageKey, sessions.slice(0, MAX_SESSIONS));
+    return clean;
   }
 
-  deleteSession(sessionId) {
-    const sessions = this.listSessions().filter(s => s.id !== sessionId);
-    this.context.globalState.update(this.storageKey, sessions);
+  async deleteSession(sessionId) {
+    const sessions = this.listSessions().filter((session) => session.id !== sessionId);
+    await this.context.globalState.update(this.storageKey, sessions);
     return true;
   }
 
-  clearAll() {
-    this.context.globalState.update(this.storageKey, []);
+  async clearAll() {
+    await this.context.globalState.update(this.storageKey, []);
     return true;
   }
 }
 
-module.exports = { HistoryManager };
+module.exports = { HistoryManager, makeTitle, MAX_SESSIONS, MAX_MESSAGES_PER_SESSION, MAX_STORED_MESSAGE_CHARS };

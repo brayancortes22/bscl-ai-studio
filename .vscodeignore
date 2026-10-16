@@ -1,4 +1,10 @@
+# Solo se empaqueta lo que necesita la extensión en tiempo de ejecución.
 .vscode/**
+.claude/**
 node_modules/**
 **/*.vsix
 dev-watch.ps1
+test/**
+tools/**
+docs/**
+.gitignore

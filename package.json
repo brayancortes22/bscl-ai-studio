@@ -2,7 +2,7 @@
   "name": "bscl-ai-studio",
   "displayName": "BSCL AI Studio",
   "description": "Agente para VS Code con contexto de carpetas, edición reversible, modelos locales, APIs y coordinación de agentes.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "bscl",
   "author": "Brayan Stid Cortés Lombana (bscl)",
   "license": "MIT",
@@ -11,8 +11,17 @@
   },
   "categories": [
     "AI",
-    "Programming Languages",
-    "Snippets"
+    "Chat",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "ai",
+    "agent",
+    "chat",
+    "gemini",
+    "ollama",
+    "openrouter",
+    "español"
   ],
   "main": "./src/extension.js",
   "activationEvents": [
@@ -33,7 +42,7 @@
         {
           "type": "webview",
           "id": "bsclAi.chatView",
-          "name": "BSCL AI Studio",
+          "name": "Chat",
           "visibility": "visible"
         }
       ]
@@ -41,52 +50,142 @@
     "commands": [
       {
         "command": "bsclAi.openChat",
-        "title": "BSCL AI: Abrir Chat",
+        "title": "Abrir chat",
         "category": "BSCL AI"
       },
       {
+        "command": "bsclAi.newChat",
+        "title": "Nuevo chat",
+        "category": "BSCL AI",
+        "icon": "$(add)"
+      },
+      {
+        "command": "bsclAi.showHistory",
+        "title": "Historial",
+        "category": "BSCL AI",
+        "icon": "$(history)"
+      },
+      {
+        "command": "bsclAi.openSettings",
+        "title": "Ajustes y proveedores",
+        "category": "BSCL AI",
+        "icon": "$(settings-gear)"
+      },
+      {
         "command": "bsclAi.explainSelection",
-        "title": "BSCL AI: Explicar Código Seleccionado",
+        "title": "Explicar la selección",
         "category": "BSCL AI"
       },
       {
         "command": "bsclAi.refactorSelection",
-        "title": "BSCL AI: Refactorizar Código",
+        "title": "Refactorizar la selección",
         "category": "BSCL AI"
       },
       {
         "command": "bsclAi.fixBugs",
-        "title": "BSCL AI: Buscar y Corregir Bugs",
+        "title": "Buscar errores en la selección",
         "category": "BSCL AI"
       }
     ],
+    "submenus": [
+      {
+        "id": "bsclAi.editorMenu",
+        "label": "BSCL AI"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "bsclAi.newChat",
+          "when": "view == bsclAi.chatView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "bsclAi.showHistory",
+          "when": "view == bsclAi.chatView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "bsclAi.openSettings",
+          "when": "view == bsclAi.chatView",
+          "group": "navigation@3"
+        }
+      ],
+      "editor/context": [
+        {
+          "submenu": "bsclAi.editorMenu",
+          "when": "editorHasSelection",
+          "group": "1_modification@90"
+        }
+      ],
+      "bsclAi.editorMenu": [
+        {
+          "command": "bsclAi.explainSelection",
+          "group": "bscl@1"
+        },
+        {
+          "command": "bsclAi.refactorSelection",
+          "group": "bscl@2"
+        },
+        {
+          "command": "bsclAi.fixBugs",
+          "group": "bscl@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "bsclAi.explainSelection",
+          "when": "editorHasSelection"
+        },
+        {
+          "command": "bsclAi.refactorSelection",
+          "when": "editorHasSelection"
+        },
+        {
+          "command": "bsclAi.fixBugs",
+          "when": "editorHasSelection"
+        }
+      ]
+    },
     "configuration": {
       "title": "BSCL AI Studio",
       "properties": {
         "bsclAi.smartRouterUrl": {
           "type": "string",
           "default": "http://localhost:3000",
-          "description": "URL base del servidor Smart AI Router local"
+          "scope": "application",
+          "description": "URL base del servidor Smart AI Router. Solo se lee de los ajustes de usuario: un repositorio no puede cambiarla."
         },
         "bsclAi.ollamaUrl": {
           "type": "string",
           "default": "http://localhost:11434",
-          "description": "URL base de la instancia local de Ollama"
+          "scope": "application",
+          "description": "URL base de Ollama en este equipo (solo localhost, 127.0.0.1 o [::1])."
         },
         "bsclAi.defaultModel": {
           "type": "string",
           "default": "smart-router",
-          "description": "Modelo predeterminado al iniciar el panel (Automático por defecto)"
+          "scope": "application",
+          "description": "Modelo con el que se abre el panel. Los modelos de pago (Grok, Muse) no se pueden preseleccionar."
         },
         "bsclAi.obsidianVaultPath": {
           "type": "string",
           "default": "",
-          "description": "Ruta absoluta opcional a la bóveda de Obsidian"
+          "scope": "application",
+          "description": "Ruta absoluta opcional a una bóveda de Obsidian cuyas notas se usan como contexto."
+        },
+        "bsclAi.obsidianSkillsFolder": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "description": "Subcarpeta de la bóveda (relativa a bsclAi.obsidianVaultPath) donde buscar las notas de cada enfoque. Vacío: toda la bóveda hasta 3 niveles. Solo se usan notas con `bscl-skill: <clave>` en el frontmatter o llamadas `bscl-skill-<clave>.md`."
         }
       }
     }
   },
   "scripts": {
+    "test": "node --test \"test/**/*.test.js\"",
+    "preview": "node tools/webview-preview/server.js",
     "package": "npx -y @vscode/vsce package --no-dependencies --allow-missing-repository",
     "release:patch": "npm version patch",
     "release:minor": "npm version minor",

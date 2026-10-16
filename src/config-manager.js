@@ -1,15 +1,36 @@
 const vscode = require('vscode');
 const { GEMINI_2026_MODELS, GROQ_FREE_MODELS } = require('./free-cloud-fallback');
 
+// Claves que se guardan en SecretStorage. Las de proveedores ya retirados de la UI
+// (SambaNova, API personalizada, servidor OpenCode, Cerebras) se conservan si existían,
+// pero solo se pueden borrar: no se vuelven a pedir.
 const SECRET_KEYS = [
-  'geminiApiKey', 'groqApiKey', 'openRouterApiKey', 'sambanovaApiKey', 'cerebrasApiKey', 'customApiKey', 'openCodePassword', 'xaiApiKey', 'metaApiKey'
+  'geminiApiKey', 'groqApiKey', 'openRouterApiKey', 'xaiApiKey', 'metaApiKey',
+  'sambanovaApiKey', 'cerebrasApiKey', 'customApiKey', 'openCodePassword'
 ];
+// Las que el webview puede ver (configurada sí/no y últimos 4 caracteres) y cambiar.
+const EDITABLE_SECRETS = new Set(['geminiApiKey', 'groqApiKey', 'openRouterApiKey', 'xaiApiKey', 'metaApiKey']);
+const LEGACY_SECRET_LABELS = { cerebrasApiKey: 'Cerebras', sambanovaApiKey: 'SambaNova', customApiKey: 'API personalizada', openCodePassword: 'servidor OpenCode' };
+
+const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
+const DEFAULT_ROUTER_URL = 'http://localhost:3000';
+
+function isHttpUrl(value) {
+  try { return ['http:', 'https:'].includes(new URL(String(value || '').trim()).protocol); } catch { return false; }
+}
 
 function isLoopbackUrl(value) {
   try {
-    const url = new URL(value);
+    const url = new URL(String(value || '').trim());
     return url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]', '::1'].includes(url.hostname.toLowerCase());
   } catch { return false; }
+}
+
+class SettingsValidationError extends Error {
+  constructor(field, message) {
+    super(message);
+    this.field = field;
+  }
 }
 
 class ConfigManager {
@@ -20,28 +41,65 @@ class ConfigManager {
     this.migration = null;
   }
 
+  /**
+   * Las URLs locales solo se leen de los ajustes de USUARIO. Por qué: un repositorio
+   * podía fijar bsclAi.smartRouterUrl en su .vscode/settings.json y desviar todas las
+   * conversaciones (con código del workspace) a un servidor ajeno.
+   */
+  readUserSetting(key, fallback) {
+    const inspected = vscode.workspace.getConfiguration('bsclAi').inspect?.(key);
+    if (inspected) return inspected.globalValue ?? inspected.defaultValue ?? fallback;
+    return vscode.workspace.getConfiguration('bsclAi').get(key) ?? fallback;
+  }
+
   async getConfig() {
     await this.migrateCredentials();
-    const vsConfig = vscode.workspace.getConfiguration('bsclAi');
+    const ollamaUrl = this.readUserSetting('ollamaUrl', DEFAULT_OLLAMA_URL);
+    const smartRouterUrl = this.readUserSetting('smartRouterUrl', DEFAULT_ROUTER_URL);
+    const groqFreeEnabled = this.context.globalState.get('bscl_ai_groq_free_enabled', false);
     const config = {
-      smartRouterUrl: vsConfig.get('smartRouterUrl') || 'http://localhost:3000',
-      ollamaUrl: isLoopbackUrl(vsConfig.get('ollamaUrl') || 'http://localhost:11434')
-        ? (vsConfig.get('ollamaUrl') || 'http://localhost:11434') : 'http://localhost:11434',
+      smartRouterUrl: isHttpUrl(smartRouterUrl) ? smartRouterUrl : DEFAULT_ROUTER_URL,
+      ollamaUrl: isLoopbackUrl(ollamaUrl) ? ollamaUrl : DEFAULT_OLLAMA_URL,
       geminiFreeTierEnabled: this.context.globalState.get('bscl_ai_gemini_free_tier_enabled', true),
-      groqFreeEnabled: this.context.globalState.get('bscl_ai_groq_free_enabled', true),
-      groqAutoEnabled: this.context.globalState.get('bscl_ai_groq_free_enabled', true),
+      groqFreeEnabled,
+      groqAutoEnabled: groqFreeEnabled,
       freeCloudEnabled: this.context.globalState.get('bscl_ai_free_cloud_enabled', true),
       customApiBaseUrl: this.context.globalState.get('bscl_ai_custom_api_base_url', ''),
       customApiModel: this.context.globalState.get('bscl_ai_custom_api_model', ''),
       customApiName: this.context.globalState.get('bscl_ai_custom_api_name', 'API compatible'),
       openCodeUrl: this.context.globalState.get('bscl_ai_opencode_url', ''),
       openCodeUsername: this.context.globalState.get('bscl_ai_opencode_username', 'opencode'),
-       openCodeFreeEnabled: this.context.globalState.get('bscl_ai_opencode_free_enabled', true)
+      openCodeFreeEnabled: this.context.globalState.get('bscl_ai_opencode_free_enabled', true)
     };
     for (const key of SECRET_KEYS) {
       config[key] = await this.context.secrets.get(`${this.secretPrefix}${key}`) || '';
     }
+    // Groq en Automático exige la casilla Y una clave: sin clave no hay nada que activar.
+    config.groqFreeEnabled = Boolean(groqFreeEnabled && config.groqApiKey);
+    config.groqAutoEnabled = config.groqFreeEnabled;
     return config;
+  }
+
+  /** Lo que ve el webview: nunca las claves, solo si están configuradas y su final. */
+  async getWebviewConfig() {
+    const config = await this.getConfig();
+    const secrets = {};
+    for (const key of EDITABLE_SECRETS) {
+      const value = String(config[key] || '');
+      secrets[key] = value ? { configured: true, hint: value.slice(-4) } : { configured: false };
+    }
+    // Claves de proveedores retirados: solo se informa de que existen para poder borrarlas.
+    const legacySecrets = Object.keys(LEGACY_SECRET_LABELS)
+      .filter((key) => config[key])
+      .map((key) => ({ key, label: LEGACY_SECRET_LABELS[key] }));
+    return {
+      secrets,
+      legacySecrets,
+      groqFreeEnabled: Boolean(this.context.globalState.get('bscl_ai_groq_free_enabled', false)),
+      freeCloudEnabled: config.freeCloudEnabled,
+      ollamaUrl: config.ollamaUrl,
+      smartRouterUrl: config.smartRouterUrl
+    };
   }
 
   async migrateCredentials() {
@@ -61,44 +119,51 @@ class ConfigManager {
     return this.migration;
   }
 
-  async saveConfig(newConfig = {}) {
-    if (newConfig.ollamaUrl && !isLoopbackUrl(newConfig.ollamaUrl.trim())) {
-      throw new Error('El modo sin costo solo permite Ollama en localhost; no se aceptan servidores remotos.');
+  /**
+   * Aplica un parche de ajustes del webview:
+   * { secrets: { clave: 'valor nuevo' }, clearSecrets: ['clave'], groqFreeEnabled, freeCloudEnabled, ollamaUrl, smartRouterUrl }
+   * Lo que no viene en el parche no se toca. Por qué: antes se reescribía todo con lo
+   * que hubiera en el formulario, y guardar antes de que cargara borraba las claves.
+   * Valida todo antes de escribir nada; lanza SettingsValidationError con el campo.
+   */
+  async applySettingsPatch(patch = {}) {
+    const secrets = patch.secrets && typeof patch.secrets === 'object' ? patch.secrets : {};
+    const clearSecrets = Array.isArray(patch.clearSecrets) ? patch.clearSecrets : [];
+
+    if (patch.ollamaUrl !== undefined && !isLoopbackUrl(patch.ollamaUrl)) {
+      throw new SettingsValidationError('ollamaUrl', 'Solo se admite Ollama en este equipo (http://localhost, 127.0.0.1 o [::1]).');
     }
-    const hasGeminiKey = Boolean(String(newConfig.geminiApiKey || '').trim());
-    await this.context.globalState.update('bscl_ai_gemini_free_tier_enabled', hasGeminiKey);
-    const groqFreeEnabled = Boolean(newConfig.groqFreeEnabled || String(newConfig.groqApiKey || '').trim());
-    await this.context.globalState.update('bscl_ai_groq_free_enabled', groqFreeEnabled);
-    await this.context.globalState.update('bscl_ai_groq_auto_enabled', groqFreeEnabled);
-    if (newConfig.freeCloudEnabled !== undefined) {
-      await this.context.globalState.update('bscl_ai_free_cloud_enabled', Boolean(newConfig.freeCloudEnabled));
+    if (patch.smartRouterUrl !== undefined && !isHttpUrl(patch.smartRouterUrl)) {
+      throw new SettingsValidationError('smartRouterUrl', 'Escribe una URL http:// o https:// válida.');
     }
-    if (newConfig.openCodeFreeEnabled !== undefined) {
-      await this.context.globalState.update('bscl_ai_opencode_free_enabled', Boolean(newConfig.openCodeFreeEnabled));
+    for (const key of [...Object.keys(secrets), ...clearSecrets]) {
+      if (!SECRET_KEYS.includes(key)) throw new SettingsValidationError(null, `Clave de ajustes desconocida: ${key}`);
     }
-    const current = await this.getConfig();
-    const merged = { ...current, ...newConfig };
-    if (!hasGeminiKey) merged.geminiApiKey = '';
-    for (const key of SECRET_KEYS) {
-      const value = String(merged[key] || '').trim();
-      if (value) await this.context.secrets.store(`${this.secretPrefix}${key}`, value);
-      else await this.context.secrets.delete(`${this.secretPrefix}${key}`);
+    for (const [key, value] of Object.entries(secrets)) {
+      if (typeof value !== 'string' || !value.trim()) continue;
+      if (/\s/.test(value.trim()) || value.trim().length > 512) throw new SettingsValidationError(null, `La clave de ${key.replace(/ApiKey$/, '')} no parece válida: no debe tener espacios.`);
     }
 
-    for (const [key, stateKey] of [
-      ['customApiBaseUrl', 'bscl_ai_custom_api_base_url'],
-      ['customApiModel', 'bscl_ai_custom_api_model'],
-      ['customApiName', 'bscl_ai_custom_api_name'],
-      ['openCodeUrl', 'bscl_ai_opencode_url'],
-      ['openCodeUsername', 'bscl_ai_opencode_username']
-    ]) {
-      await this.context.globalState.update(stateKey, String(merged[key] || '').trim());
+    for (const key of clearSecrets) await this.context.secrets.delete(`${this.secretPrefix}${key}`);
+    for (const [key, value] of Object.entries(secrets)) {
+      const clean = String(value || '').trim();
+      if (clean) await this.context.secrets.store(`${this.secretPrefix}${key}`, clean);
+    }
+
+    const geminiKey = await this.context.secrets.get(`${this.secretPrefix}geminiApiKey`);
+    await this.context.globalState.update('bscl_ai_gemini_free_tier_enabled', Boolean(geminiKey));
+    if (patch.groqFreeEnabled !== undefined) {
+      await this.context.globalState.update('bscl_ai_groq_free_enabled', Boolean(patch.groqFreeEnabled));
+      await this.context.globalState.update('bscl_ai_groq_auto_enabled', Boolean(patch.groqFreeEnabled));
+    }
+    if (patch.freeCloudEnabled !== undefined) {
+      await this.context.globalState.update('bscl_ai_free_cloud_enabled', Boolean(patch.freeCloudEnabled));
     }
 
     const vsConfig = vscode.workspace.getConfiguration('bsclAi');
-    if (newConfig.smartRouterUrl) await vsConfig.update('smartRouterUrl', newConfig.smartRouterUrl.trim(), vscode.ConfigurationTarget.Global);
-    if (newConfig.ollamaUrl) await vsConfig.update('ollamaUrl', newConfig.ollamaUrl.trim(), vscode.ConfigurationTarget.Global);
-    return this.getConfig();
+    if (patch.smartRouterUrl !== undefined) await vsConfig.update('smartRouterUrl', String(patch.smartRouterUrl).trim(), vscode.ConfigurationTarget.Global);
+    if (patch.ollamaUrl !== undefined) await vsConfig.update('ollamaUrl', String(patch.ollamaUrl).trim(), vscode.ConfigurationTarget.Global);
+    return this.getWebviewConfig();
   }
 
   async testProviders() {
@@ -110,66 +175,49 @@ class ConfigManager {
       ollama: { status: 'offline', label: 'Ollama Local' },
       smartRouter: { status: 'offline', label: 'Smart AI Router' },
       gemini: { configured: Boolean(cfg.geminiApiKey), status: cfg.geminiApiKey ? 'checking-free-model' : 'not-configured' },
-      cerebras: { configured: Boolean(cfg.cerebrasApiKey), status: cfg.cerebrasApiKey ? 'checking-free-model' : 'not-configured' },
-      groq: { configured: Boolean(cfg.groqApiKey), enabled: Boolean(cfg.groqFreeEnabled), status: cfg.groqFreeEnabled && cfg.groqApiKey ? 'checking-free-model' : 'not-enabled' },
+      groq: { configured: Boolean(cfg.groqApiKey), enabled: Boolean(cfg.groqFreeEnabled), status: cfg.groqFreeEnabled ? 'checking-free-model' : cfg.groqApiKey ? 'not-enabled' : 'not-configured' },
       openrouter: { configured: Boolean(cfg.openRouterApiKey), status: cfg.openRouterApiKey ? 'configured' : 'not-configured' },
       grok: { configured: Boolean(cfg.xaiApiKey), status: cfg.xaiApiKey ? 'checking-model' : 'not-configured' },
       meta: { configured: Boolean(cfg.metaApiKey), status: cfg.metaApiKey ? 'checking-model' : 'not-configured' },
-      freeCloud: { enabled: Boolean(cfg.freeCloudEnabled), status: cfg.freeCloudEnabled ? 'online' : 'disabled' }
+      // La Nube Pública no tiene un endpoint de estado barato: no se marca como conectada sin comprobarla.
+      freeCloud: { enabled: Boolean(cfg.freeCloudEnabled), status: cfg.freeCloudEnabled ? 'checking-public' : 'disabled' }
     };
 
+    const timed = (ms) => AbortSignal.timeout(ms);
     const checks = [
-      fetch(`${cfg.ollamaUrl}/api/tags`, { signal: AbortSignal.timeout(2000) }).then((res) => { if (res.ok) results.ollama.status = 'online'; }),
-      fetch(`${cfg.smartRouterUrl}/health`, { signal: AbortSignal.timeout(2000) }).then(async (res) => {
-        if (res.ok) {
-          const data = await res.json();
-          results.smartRouter.status = 'online';
-          results.smartRouter.providers = data.providers || {};
-        }
+      fetch(`${cfg.ollamaUrl}/api/tags`, { signal: timed(2000) }).then((res) => { if (res.ok) results.ollama.status = 'online'; }),
+      fetch(`${cfg.smartRouterUrl}/health`, { signal: timed(2000) }).then(async (res) => {
+        if (!res.ok) return;
+        const data = await res.json().catch(() => ({}));
+        results.smartRouter.status = 'online';
+        results.smartRouter.providers = data.providers || {};
       })
     ];
-    if (cfg.openRouterApiKey) {
-      checks.push(fetch('https://openrouter.ai/api/v1/models', {
-        headers: { Authorization: `Bearer ${cfg.openRouterApiKey}` }, signal: AbortSignal.timeout(5000)
-      }).then((res) => { results.openrouter.status = res.ok ? 'online' : `error-${res.status}`; })
-        .catch(() => { results.openrouter.status = 'offline'; }));
-    }
-    if (cfg.xaiApiKey) {
-      checks.push(fetch('https://api.x.ai/v1/models', {
-        headers: { Authorization: `Bearer ${cfg.xaiApiKey}` }, signal: AbortSignal.timeout(5000)
-      }).then((res) => { results.grok.status = res.ok ? 'online' : `error-${res.status}`; })
-        .catch(() => { results.grok.status = 'offline'; }));
-    }
-    if (cfg.metaApiKey) {
-      checks.push(fetch('https://api.meta.ai/v1/models', {
-        headers: { Authorization: `Bearer ${cfg.metaApiKey}` }, signal: AbortSignal.timeout(5000)
-      }).then((res) => { results.meta.status = res.ok ? 'online' : `error-${res.status}`; })
-        .catch(() => { results.meta.status = 'offline'; }));
-    }
+    const listModels = (url, key, target, onData) => checks.push(fetch(url, { headers: { Authorization: `Bearer ${key}` }, signal: timed(5000) })
+      .then(async (res) => {
+        if (!res.ok) { results[target].status = `error-${res.status}`; return; }
+        if (onData) await onData(await res.json().catch(() => ({})));
+        else results[target].status = 'online';
+      })
+      .catch(() => { results[target].status = 'offline'; }));
+
+    if (cfg.openRouterApiKey) listModels('https://openrouter.ai/api/v1/models', cfg.openRouterApiKey, 'openrouter');
+    if (cfg.xaiApiKey) listModels('https://api.x.ai/v1/models', cfg.xaiApiKey, 'grok');
+    if (cfg.metaApiKey) listModels('https://api.meta.ai/v1/models', cfg.metaApiKey, 'meta');
     if (cfg.geminiApiKey) {
-      checks.push(fetch('https://generativelanguage.googleapis.com/v1beta/openai/models', {
-        headers: { Authorization: `Bearer ${cfg.geminiApiKey}` }, signal: AbortSignal.timeout(5000)
-      }).then(async (res) => {
-        if (!res.ok) { results.gemini.status = `error-${res.status}`; return; }
-        const data = await res.json();
+      listModels('https://generativelanguage.googleapis.com/v1beta/openai/models', cfg.geminiApiKey, 'gemini', (data) => {
         const models = data.data || data.models || [];
-        results.gemini.status = models.some((m) => geminiTargetIds.has(m.id) || /gemini.*flash/i.test(m.id || ''))
-          ? 'online' : 'model-unavailable';
-      }).catch(() => { results.gemini.status = 'offline'; }));
+        results.gemini.status = models.some((m) => geminiTargetIds.has(m.id) || /gemini.*flash/i.test(m.id || '')) ? 'online' : 'model-unavailable';
+      });
     }
     if (cfg.groqApiKey && cfg.groqFreeEnabled) {
-      checks.push(fetch('https://api.groq.com/openai/v1/models', {
-        headers: { Authorization: `Bearer ${cfg.groqApiKey}` }, signal: AbortSignal.timeout(5000)
-      }).then(async (res) => {
-        if (!res.ok) { results.groq.status = `error-${res.status}`; return; }
-        const data = await res.json();
-        results.groq.status = (data.data || []).some((m) => groqTargetIds.has(m.id))
-          ? 'online' : 'model-unavailable';
-      }).catch(() => { results.groq.status = 'offline'; }));
+      listModels('https://api.groq.com/openai/v1/models', cfg.groqApiKey, 'groq', (data) => {
+        results.groq.status = (data.data || []).some((m) => groqTargetIds.has(m.id)) ? 'online' : 'model-unavailable';
+      });
     }
     await Promise.allSettled(checks);
     return results;
   }
 }
 
-module.exports = { ConfigManager };
+module.exports = { ConfigManager, SettingsValidationError, isLoopbackUrl, isHttpUrl, SECRET_KEYS };

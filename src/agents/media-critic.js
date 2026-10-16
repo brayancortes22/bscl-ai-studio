@@ -11,7 +11,8 @@ Tu misión:
 Responde siempre en español.
 1. Inspección Visual y Estética: Juzga si el diseño sigue el estándar Refero AAA (dark mode profundo, glassmorphism, micro-animaciones a 60 FPS, tipografía con contraste óptico y espaciado en múltiplos de 4/8px).
 2. Inspección de imágenes adjuntas: Extrae problemas visuales y requerimientos de interfaz que se puedan verificar.
-3. Cero mediocridad: Si la interfaz parece una maqueta barata, sé crítico, explica por qué falla y provee el CSS o layout refinado para elevarla a nivel élite.`;
+3. Cero mediocridad: Si la interfaz parece una maqueta barata, sé crítico, explica por qué falla y, solo entonces, provee el CSS o layout refinado para elevarla a nivel élite.
+Termina SIEMPRE con una última línea exacta: "VEREDICTO: CORREGIR" solo si hay un fallo que impide usar la interfaz (diseño roto, texto ilegible, elementos que no funcionan o que contradicen lo pedido); para sugerencias estéticas opcionales usa "VEREDICTO: OK".`;
   }
 
   static async run({ client, code, mediaItems = [], model = 'smart-router' }) {

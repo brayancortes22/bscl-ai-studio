@@ -1,6 +1,8 @@
 const vscode = require('vscode');
 const fs = require('fs');
 const path = require('path');
+const { isSensitiveFileName, isSensitivePath, redactSecrets } = require('./sensitive-data');
+const { decodeUtf8, hashBytes, isCredentialRoot } = require('./patch-applier');
 
 const TEXT_EXTENSIONS = new Set([
   '.c', '.cc', '.cpp', '.cs', '.css', '.go', '.h', '.html', '.java', '.js', '.jsx',
@@ -11,11 +13,17 @@ const SKIP_DIRS = new Set([
   '.git', '.svn', '.hg', 'node_modules', 'dist', 'build', 'out', '.next', 'coverage',
   '.venv', 'venv', '.gradle', '.idea', 'vendor', 'target', 'Pods'
 ]);
-const SKIP_NAMES = /^(?:\.env(?:\.(?!(?:example|template)$).*)?|local\.properties|.*(?:secret|credential|token).*|id_(?:rsa|ed25519)(?:\..*)?|.*\.lock|.*\.min\.(?:js|css)|.*\.(?:png|jpe?g|gif|webp|ico|pdf|zip|vsix|exe|dll|db|sqlite|pem|key|p12|pfx))$/i;
-const SECRET_VALUE = /(["']?(?:api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret|password|passwd|authorization|private[-_]?key|secret|token)["']?\s*[:=]\s*)("[^"\r\n]*"|'[^'\r\n]*'|[^,\s}]+)/gi;
+// Solo lo que no aporta como texto. Los archivos con credenciales los decide sensitive-data:
+// la subcadena suelta «token|secret» de antes ocultaba token.service.ts o tokenizer.js.
+const SKIP_NAMES = /^(?:.*\.lock|.*\.min\.(?:js|css)|.*\.(?:png|jpe?g|gif|webp|ico|pdf|zip|vsix|exe|dll|db|sqlite))$/i;
 
 class WorkspaceContext {
-  static async build(prompt = '', scopePath = null) {
+  /**
+   * `baseHashes` (opcional, un Map) recibe ruta relativa → sha256 de los bytes de cada archivo
+   * adjuntado. WorkspaceChangeManager.applyChanges(…, { baseHashes }) lo usa para no pisar un
+   * archivo que el usuario guardó mientras el modelo generaba el cambio.
+   */
+  static async build(prompt = '', scopePath = null, baseHashes = null) {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     const requestedRoot = scopePath || workspaceFolder?.uri?.fsPath;
     if (!requestedRoot) {
@@ -28,6 +36,11 @@ class WorkspaceContext {
       if (!fs.statSync(rootPath).isDirectory()) throw new Error('No es una carpeta.');
     } catch {
       return `[No se pudo leer la carpeta de proyecto seleccionada: ${path.basename(requestedRoot)}.]`;
+    }
+    // Con ~/.docker o ~/.ssh como raíz, config.json o authorized_keys tienen nombres
+    // inocentes y la exclusión por nombre no los frenaba: se adjuntaban al prompt.
+    if (isCredentialRoot(rootPath)) {
+      return `[La carpeta seleccionada (${path.basename(rootPath)}) guarda credenciales; no se lee su contenido. Elige la carpeta del proyecto.]`;
     }
 
     const activePath = vscode.window.activeTextEditor?.document.uri.scheme === 'file'
@@ -53,6 +66,7 @@ class WorkspaceContext {
         if (prioritizedFiles.length >= maxFiles) break;
         if (!entry.isFile() || !this.isTextFileName(entry.name)) continue;
         const relative = path.posix.join(relativeDirectory.replace(/\\/g, '/'), entry.name);
+        if (isSensitivePath(relative)) continue;
         prioritizedFiles.push({ fullPath: path.join(directory, entry.name), relative, score: this.pathScore(relative, promptTokens) });
       }
       for (const entry of directories) {
@@ -75,10 +89,18 @@ class WorkspaceContext {
         if (!this.isSafeFile(rootPath, file.fullPath)) continue;
         const stat = fs.statSync(file.fullPath);
         if (stat.size > 32000) continue;
-        const content = fs.readFileSync(file.fullPath, 'utf8').replace(SECRET_VALUE, '$1"[REDACTADO]"');
-        if (content.includes('\u0000')) continue;
+        const bytes = fs.readFileSync(file.fullPath);
+        if (bytes.includes(0)) continue;
+        // Un archivo que no es UTF-8 se muestra (con U+FFFD donde haya acentos) pero se marca
+        // como solo lectura: el host rechazará editarlo para no destruir sus bytes.
+        let text;
+        let isUtf8 = true;
+        try { text = decodeUtf8(bytes).text; } catch { isUtf8 = false; text = new TextDecoder('utf-8').decode(bytes); }
+        const content = redactSecrets(text, { fileName: file.relative });
+        if (baseHashes instanceof Map) baseHashes.set(file.relative, hashBytes(bytes));
         const excerpt = content.slice(0, Math.min(5200, budget));
-        sections.push(`### ${file.relative}\n\`\`\`\n${excerpt}${content.length > excerpt.length ? '\n[contenido truncado]' : ''}\n\`\`\``);
+        const heading = isUtf8 ? file.relative : `${file.relative} (no está en UTF-8: solo lectura)`;
+        sections.push(`### ${heading}\n\`\`\`\n${excerpt}${content.length > excerpt.length ? '\n[contenido truncado]' : ''}\n\`\`\``);
         budget -= excerpt.length;
       } catch {
         // El archivo puede cambiar mientras se prepara el contexto.
@@ -93,6 +115,7 @@ class WorkspaceContext {
       `Ruta seleccionada: ${rootPath}\nSubcarpeta del workspace: ${relativeScope}\n` +
       `Archivos de texto indexados (máximo 100 mostrados; exploración acotada): ${files.join(', ') || '(ninguno)'}\n` +
       `El host de VS Code leyó y adjuntó los archivos relevantes listados. Puedes proponer cambios usando JSON; el host los validará y guardará en esta carpeta.\n` +
+      `El host rechaza escribir dentro de .vscode, .git o node_modules y en archivos de credenciales: no los incluyas en los cambios.\n` +
       `No afirmes que careces de acceso al workspace si recibiste este contexto. No digas que guardaste cambios antes de que el host confirme.\n` +
       `No incluyas ni modifiques credenciales que aparezcan en los archivos.]\n\n${sections.join('\n\n') || '(No se encontraron archivos de texto legibles en la carpeta.)'}`;
   }
@@ -131,7 +154,7 @@ class WorkspaceContext {
   }
 
   static isTextFileName(name) {
-    return !SKIP_NAMES.test(name) && (TEXT_EXTENSIONS.has(path.extname(name).toLowerCase()) ||
+    return !isSensitiveFileName(name) && !SKIP_NAMES.test(name) && (TEXT_EXTENSIONS.has(path.extname(name).toLowerCase()) ||
       /^(readme|dockerfile|makefile|\.gitignore|\.editorconfig|\.gitattributes)$/i.test(name));
   }
 

@@ -3,6 +3,7 @@
  * Autor: Brayan Stid Cortés Lombana (bscl)
  */
 const { GEMINI_2026_MODELS, GROQ_FREE_MODELS, CEREBRAS_FREE_MODELS } = require('./free-cloud-fallback');
+const { timeoutSignal } = require('./provider-cooldown');
 
 const ZERO_COST_OPENROUTER_EXCLUDE = /embed|rerank|moderation|transcri/i;
 const XAI_BASE_URL = 'https://api.x.ai/v1';
@@ -22,6 +23,12 @@ const XAI_FALLBACK_MODELS = [
   { id: 'grok-code-fast-1', label: 'Grok Code Fast 1 (Código rápido)' },
   { id: 'grok-2-vision-latest', label: 'Grok 2 Vision (Acepta imágenes)' }
 ];
+// Proveedores que facturan o gastan crédito: Cerebras arranca con crédito de prueba (ADR-017) y su
+// clave no se puede ver ni borrar en ⚙️ APIs. Solo se usan si el usuario elige uno de sus modelos.
+const PAID_PROVIDERS = new Set(['xai', 'meta', 'cerebras']);
+const PAID_ID = /^(?:grok:|xai:|meta:|cerebras:|router:cerebras\/)/i;
+// La consulta del catálogo de OpenRouter tiene un timeout de 8 s y Automático la repetía en cada petición.
+const OPENROUTER_CATALOG_TTL_MS = 5 * 60 * 1000;
 const SAFE_ROUTER_ID = /^router:(?:openrouter\/(?:openrouter\/free|[^\s]+:free)|gemini\/|groq\/|cerebras\/|free-cloud\/)/i;
 const PREFERRED_FREE_FAMILIES = [
   /qwen/i, /deepseek/i, /llama-3\.3-70b|gpt-oss-120b|nemotron/i,
@@ -40,9 +47,18 @@ class ModelCatalog {
     return SAFE_ROUTER_ID.test(id);
   }
 
-  static async getLocalModels(ollamaUrl) {
+  /** Grupo del selector: 'auto' | 'free' | 'local' | 'paid'. */
+  static groupFor(model = {}) {
+    const id = String(model.id || '');
+    if (model.provider === 'auto' || id === 'smart-router') return 'auto';
+    if (model.provider === 'ollama' || model.isLocal) return 'local';
+    if (PAID_PROVIDERS.has(model.provider) || PAID_ID.test(id)) return 'paid';
+    return 'free';
+  }
+
+  static async getLocalModels(ollamaUrl, signal) {
     try {
-      const res = await fetch(`${ollamaUrl}/api/tags`, { signal: AbortSignal.timeout(2500) });
+      const res = await fetch(`${ollamaUrl}/api/tags`, { signal: timeoutSignal(2500, signal) });
       if (!res.ok) return [];
       const data = await res.json();
       return (data.models || []).map((m) => ({
@@ -64,13 +80,13 @@ class ModelCatalog {
     }));
   }
 
-  static async fetchGroqModelCatalog(groqApiKey, groqFreeEnabled, cache) {
+  static async fetchGroqModelCatalog(groqApiKey, groqFreeEnabled, cache, signal) {
     if (!groqApiKey || !groqFreeEnabled) return [];
     if (Date.now() - cache.checkedAt < 120000 && cache.ids.length) return cache.ids;
     try {
       const response = await fetch('https://api.groq.com/openai/v1/models', {
         headers: { Authorization: `Bearer ${groqApiKey}` },
-        signal: AbortSignal.timeout(5000)
+        signal: timeoutSignal(5000, signal)
       });
       if (!response.ok) return [];
       const data = await response.json();
@@ -100,7 +116,7 @@ class ModelCatalog {
     if (!cerebrasApiKey) return [];
     return CEREBRAS_FREE_MODELS.map((m) => ({
       id: `cerebras:${m.id}`,
-      name: `🧠 Cerebras · ${m.label}`,
+      name: `🧠 Cerebras · ${m.label} (crédito de prueba)`,
       provider: 'cerebras'
     }));
   }
@@ -113,26 +129,31 @@ class ModelCatalog {
     ];
   }
 
-  static async fetchVerifiedOpenRouterFreeModels(openRouterApiKey) {
+  static async fetchVerifiedOpenRouterFreeModels(openRouterApiKey, cache, signal) {
     if (!openRouterApiKey) return [];
+    if (cache && Date.now() - (cache.checkedAt || 0) < OPENROUTER_CATALOG_TTL_MS && cache.models?.length) return cache.models;
+    // Pasado el TTL no se sirve la lista vieja si falla la consulta: ADR-014 exige precio $0
+    // confirmado y una caché caducada ya no lo confirma.
     try {
       const res = await fetch('https://openrouter.ai/api/v1/models', {
-        headers: { Authorization: `Bearer ${openRouterApiKey}` }, signal: AbortSignal.timeout(8000)
+        headers: { Authorization: `Bearer ${openRouterApiKey}` }, signal: timeoutSignal(8000, signal)
       });
       if (!res.ok) return [];
       const data = await res.json();
-      return (data.data || [])
+      const models = (data.data || [])
         .filter((item) => item.id && /:free$/i.test(item.id) &&
           Number(item.pricing?.prompt) === 0 && Number(item.pricing?.completion) === 0 &&
           !ZERO_COST_OPENROUTER_EXCLUDE.test(item.id))
         .map((item) => ({ id: item.id, name: item.name || item.id }))
         .sort((a, b) => freeModelFamilyRank(a) - freeModelFamilyRank(b));
+      if (cache) { cache.checkedAt = Date.now(); cache.models = models; }
+      return models;
     } catch { return []; }
   }
 
-  static async getOpenRouterModels(openRouterApiKey) {
+  static async getOpenRouterModels(openRouterApiKey, cache) {
     if (!openRouterApiKey) return [];
-    const freeModels = (await this.fetchVerifiedOpenRouterFreeModels(openRouterApiKey)).slice(0, 80);
+    const freeModels = (await this.fetchVerifiedOpenRouterFreeModels(openRouterApiKey, cache)).slice(0, 80);
     return [
       { id: 'openrouter:openrouter/free', name: '🆓 OpenRouter: Enrutador gratuito automático', provider: 'openrouter' },
       ...freeModels.map((item) => ({ id: `openrouter:${item.id}`, name: `🆓 OpenRouter: ${item.name || item.id}`, provider: 'openrouter' }))

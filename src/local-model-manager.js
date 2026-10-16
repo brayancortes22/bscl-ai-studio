@@ -97,7 +97,11 @@ class LocalModelManager {
     let item;
     try { item = JSON.parse(line); } catch { return; }
     if (item.error) throw new Error(`Ollama no pudo descargar ${model}: ${String(item.error).slice(0, 260)}`);
-    const progress = item.total ? Math.min(99, Math.floor((item.completed / item.total) * 100)) : null;
+    // Hay líneas de /api/pull con total y sin completed (inicio de capa): sin esta guarda salía
+    // NaN y el botón mostraba "Descargando NaN%".
+    const completed = Number(item.completed);
+    const total = Number(item.total);
+    const progress = total > 0 && Number.isFinite(completed) ? Math.min(99, Math.floor((completed / total) * 100)) : null;
     onProgress({
       model,
       status: item.status || 'Descargando modelo…',

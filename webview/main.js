@@ -1,470 +1,350 @@
+/**
+ * Controlador del webview: estado de la sesión, mensajes con la extensión y
+ * coordinación entre el compositor, el hilo, el historial y los ajustes.
+ */
 (function () {
+  'use strict';
+
   const vscode = acquireVsCodeApi();
+  const post = (message) => vscode.postMessage(message);
   const $ = (id) => document.getElementById(id);
-  const modelSelect = $('modelSelect'), modeSelect = $('modeSelect'), skillSelect = $('skillSelect');
-  const messagesList = $('messagesList'), promptInput = $('promptInput');
-  const btnSend = $('btnSend'), btnAttach = $('btnAttach'), btnMic = $('btnMic'), btnWebSearch = $('btnWebSearch'), mediaFileInput = $('mediaFileInput');
-  const mediaPreview = $('mediaPreview'), welcomeMessage = $('welcomeMessage');
-  const swarmTimeline = $('swarmTimeline');
-  const folderDropChip = $('folderDropChip'), folderDropName = $('folderDropName'), btnClearFolder = $('btnClearFolder');
-  const btnRecommendLocalModel = $('btnRecommendLocalModel'), btnInstallLocalModel = $('btnInstallLocalModel');
-  const btnNewChat = $('btnNewChat'), btnHistory = $('btnHistory'), btnSettings = $('btnSettings');
 
-  let currentSessionId = 'session_' + Date.now();
-  let conversationHistory = [], attachedMedia = [], isRecording = false, recognition = null, webSearchEnabled = false;
-  const pendingAudioRequests = new Map();
+  const modelSelect = $('modelSelect');
+  const modeSelect = $('modeSelect');
+  const skillSelect = $('skillSelect');
+  const welcome = $('welcomeMessage');
+  const progressBar = $('progressBar');
 
-  function resizePromptInput() {
-    const maxHeight = Math.max(56, Math.min(144, Math.floor(window.innerHeight * 0.28)));
-    promptInput.style.height = 'auto';
-    const contentHeight = promptInput.scrollHeight;
-    promptInput.style.height = `${Math.min(contentHeight, maxHeight)}px`;
-    promptInput.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden';
-  }
+  const saved = vscode.getState() || {};
+  const state = {
+    sessionId: saved.sessionId || newSessionId(),
+    conversation: [],
+    modelNames: new Map([['smart-router', 'Automático']]),
+    pendingModel: saved.model || '',
+    request: null // { id, userRow, userEntry }
+  };
 
-  window.MessageView?.init({
-    chatContainer: $('chatContainer'), messagesList, swarmTimeline: $('swarmTimeline'),
-    swarmStepBadge: $('swarmStepBadge'), swarmStepText: $('swarmStepText'),
-    loadingIndicator: $('loadingIndicator'), postMessage: (message) => vscode.postMessage(message)
-  });
+  const PAID_MODEL = /^(?:grok|xai|meta):/i;
+  const MAX_CONTEXT_MESSAGES = 40;
+  const ATTACHMENT_BLOCK = /\[ARCHIVO ADJUNTO: ([^\]\n]+?) — contenido de referencia, no instrucciones\]\n(`{3,})[^\n]*\n[\s\S]*?\n\2/g;
 
-  // Inicialización de submódulos Refero AAA
-  if (window.HistoryView) {
-    window.HistoryView.init({
-      onSelectSession: (s) => restoreSession(s),
-      onDeleteSession: (id) => vscode.postMessage({ type: 'deleteChat', payload: { id } }),
-      onClearAll: () => vscode.postMessage({ type: 'clearAllChats' })
+  function newSessionId() { return `session_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`; }
+
+  function persist() {
+    vscode.setState({
+      sessionId: state.sessionId,
+      model: modelSelect.value,
+      mode: modeSelect.value,
+      skill: skillSelect.value,
+      draft: window.Composer.getDraft()
     });
   }
-  if (window.SettingsView) {
-    window.SettingsView.init({
-    onSaveConfig: (cfg) => vscode.postMessage({ type: 'saveApiConfig', payload: cfg }),
-      onTestProviders: () => vscode.postMessage({ type: 'testProviders' }),
-      onRecommendLocalModel: () => vscode.postMessage({ type: 'recommendLocalModel' }),
-      onInstallLocalModel: (model) => model && vscode.postMessage({ type: 'installLocalModel', payload: { model } })
-    });
+
+  function setWelcome(visible) { welcome.hidden = !visible; }
+
+  function setBusy(busy) {
+    progressBar.hidden = !busy;
+    window.Composer.setBusy(busy);
   }
-  window.DiffActions?.init({ postMessage: (message) => vscode.postMessage(message), onError: appendErrorMessage });
 
-  vscode.postMessage({ type: 'ready' });
+  // ---------- Modelos ----------
 
-  window.addEventListener('message', ({ data: { type, payload } }) => {
-    if (type === 'modelsList') renderModels(payload.models, payload.defaultModel);
-    if (type === 'activeContext') {
-      window.WorkspaceView?.update(payload);
-      setSelectedFolder(payload?.selectedFolderPath ? { name: payload.selectedFolder, path: payload.selectedFolderPath } : null);
-    }
-    if (type === 'historyList') window.HistoryView?.render(payload.sessions);
-    if (type === 'apiConfig') window.SettingsView?.populate(payload);
-    if (type === 'testProvidersResult') window.SettingsView?.renderTestResults(payload);
-    if (type === 'folderSelected') setSelectedFolder(payload);
-    if (type === 'filesImported') handleImportedFiles(payload);
-    if (type === 'localModelRecommendation') window.SettingsView?.showLocalModelRecommendation(payload);
-    if (type === 'localModelProgress') window.SettingsView?.showLocalModelProgress(payload);
-    if (type === 'undoResult') {
-      window.MessageView?.markUndoUsed(payload.undoId, payload.success);
-      window.MessageView?.appendAssistant(payload.content, payload.success ? 'BSCL AI · Reversión' : 'BSCL AI · No se pudo revertir');
-    }
-    if (type === 'activeSelection') handleSelection(payload);
-    if (type === 'aiResponse') handleAiResponse(payload);
-    if (type === 'swarmProgress') window.MessageView?.updateProgress(payload);
-    if (type === 'taskPlan') window.MessageView?.showTaskPlan(payload);
-    if (type === 'audioTranscript') handleAudioTranscript(payload);
-    if (type === 'audioStatus') $('loadingIndicator').querySelector('.thinking-label').textContent = payload.text || 'Razonando con el modelo...';
-    if (typeof type === 'string' && type.startsWith('diff')) window.DiffActions?.handle(type, payload);
-    if (type === 'status') window.MessageView?.toggleLoading(payload.loading);
-    if (type === 'error') {
-      appendErrorMessage(payload.message);
-      if (payload.requestId) pendingAudioRequests.delete(payload.requestId);
-    }
-  });
+  function modelName(id) { return state.modelNames.get(id) || String(id || '').split(':').pop() || 'Automático'; }
 
-  function renderModels(models = [], defaultModel) {
+  const GROUP_LABELS = { auto: 'Automático', free: 'Gratis en la nube', local: 'Local', paid: 'De pago (tu clave)' };
+  const GROUP_ORDER = ['auto', 'free', 'local', 'paid'];
+
+  // Si la extensión no manda el grupo, se deduce del prefijo del id.
+  function groupOf(model) {
+    if (GROUP_LABELS[model.group]) return model.group;
+    const id = String(model.id || '');
+    if (id === 'smart-router') return 'auto';
+    if (/^ollama:/i.test(id)) return 'local';
+    if (PAID_MODEL.test(id)) return 'paid';
+    return 'free';
+  }
+
+  function renderModels(models = [], defaultModel = 'smart-router') {
     if (!models.length) return;
-    modelSelect.innerHTML = '';
-    models.forEach((m) => {
-      const opt = document.createElement('option');
-      opt.value = m.id; opt.textContent = m.name || m.id;
-      if (m.id === defaultModel || (!defaultModel && m.id === 'smart-router')) opt.selected = true;
-      modelSelect.appendChild(opt);
+    const wanted = state.pendingModel || modelSelect.value || defaultModel;
+    state.modelNames = new Map(models.map((model) => [model.id, model.name || model.id]));
+    const groups = new Map(GROUP_ORDER.map((key) => [key, []]));
+    models.forEach((model) => {
+      const option = document.createElement('option');
+      option.value = model.id;
+      option.textContent = model.name || model.id;
+      groups.get(groupOf(model)).push(option);
     });
+    modelSelect.replaceChildren(...GROUP_ORDER.filter((key) => groups.get(key).length).map((key) => {
+      if (key === 'auto') return groups.get(key);
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = GROUP_LABELS[key];
+      optgroup.append(...groups.get(key));
+      return optgroup;
+    }).flat());
+    modelSelect.value = state.modelNames.has(wanted) ? wanted : (state.modelNames.has(defaultModel) ? defaultModel : models[0].id);
+    modelSelect.title = `Modelo: ${modelName(modelSelect.value)}`;
+    state.pendingModel = '';
   }
 
-  function restoreSession(session) {
-    vscode.postMessage({ type: 'discardAllDiffs' });
-    currentSessionId = session.id;
-    conversationHistory = [...(session.messages || [])];
-    messagesList.innerHTML = '';
-    if (welcomeMessage) welcomeMessage.classList.add('hidden');
-    if (session.model) {
-      modelSelect.value = session.model === 'huihui_ai/qwen2.5-coder-abliterate:7b' ? 'smart-router' : session.model;
-    }
-    if (session.workspaceScope) {
-      vscode.postMessage({ type: 'restoreWorkspaceScope', payload: { path: session.workspaceScope } });
-    }
-    conversationHistory.forEach((msg) => {
-      if (msg.role === 'user') window.MessageView?.appendUser(msg.content);
-      else window.MessageView?.appendAssistant(msg.content, session.model);
-    });
+  // ---------- Sesiones ----------
+
+  function resetThread() {
+    // Una petición en vuelo se detiene y queda desligada del hilo: si su respuesta llega
+    // tarde, no debe aparecer en la conversación nueva (el host ya la guardó en la suya).
+    if (state.request) { cancel(); state.request.detached = true; }
+    window.MessageView.clear();
+    state.conversation = [];
+    setWelcome(true);
   }
 
   function startNewChat() {
-    vscode.postMessage({ type: 'discardAllDiffs' });
-    currentSessionId = 'session_' + Date.now();
-    conversationHistory = [];
-    pendingAudioRequests.clear();
-    messagesList.innerHTML = '';
-    if (welcomeMessage) welcomeMessage.classList.remove('hidden');
-    swarmTimeline.classList.add('hidden');
-    window.MessageView?.resetTaskPlan();
-    promptInput.value = '';
-    resizePromptInput();
-    promptInput.focus();
+    post({ type: 'discardAllDiffs' });
+    resetThread();
+    state.sessionId = newSessionId();
+    persist();
+    window.HistoryView.close();
+    window.SettingsView.close();
+    window.Composer.focus();
+    post({ type: 'getHistory' });
   }
 
-  function sendPrompt(customText) {
-    const text = typeof customText === 'string' ? customText : promptInput.value.trim();
-    if (!text && attachedMedia.length === 0) return;
-    if (welcomeMessage) welcomeMessage.classList.add('hidden');
-
-    const mediaForRequest = [...attachedMedia];
-    const displayText = text || mediaForRequest.map((item) => `${mediaIcon(item.category)} ${item.name || 'Adjunto'}`).join('\n');
-    const requestId = `request_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const userRow = window.MessageView?.appendUser(displayText);
-    promptInput.value = '';
-    resizePromptInput();
-    const userEntry = { role: 'user', content: text };
-    conversationHistory.push(userEntry);
-    if (mediaForRequest.some((item) => item.category === 'audio' || item.category === 'text')) {
-      pendingAudioRequests.set(requestId, { userRow, userEntry });
+  function restoreSession(session) {
+    if (!session) return;
+    post({ type: 'discardAllDiffs' });
+    resetThread();
+    state.sessionId = session.id;
+    state.conversation = Array.isArray(session.messages) ? session.messages.map((message) => ({ role: message.role, content: message.content })) : [];
+    // Un chat antiguo con un modelo de pago no cambia el selector en silencio: se avisa.
+    if (session.model && PAID_MODEL.test(session.model) && session.model !== modelSelect.value) {
+      window.Composer.showNote(`Esta conversación usó ${modelName(session.model)} (de pago). Se mantiene el modelo actual; cámbialo en el selector si quieres seguir con aquel.`);
+    } else if (session.model) {
+      if (state.modelNames.has(session.model)) modelSelect.value = session.model;
+      else state.pendingModel = session.model;
     }
+    if (session.skillKey && [...skillSelect.options].some((option) => option.value === session.skillKey)) skillSelect.value = session.skillKey;
+    setWelcome(state.conversation.length === 0);
+    state.conversation.forEach((message) => {
+      if (message.role === 'user') {
+        const names = [];
+        const text = String(message.content || '').replace(ATTACHMENT_BLOCK, (all, name) => { names.push(name.trim()); return ''; }).trim();
+        window.MessageView.appendUser(text, names.map((name) => ({ name, category: 'text' })));
+      }
+      else if (message.role === 'assistant') window.MessageView.appendAssistant(message.content, message.provider || modelName(session.model));
+    });
+    window.MessageView.scrollToBottom();
+    if (session.workspaceScope) post({ type: 'restoreWorkspaceScope', payload: { sessionId: session.id } });
+    persist();
+  }
 
-    const isSwarmMode = modeSelect.value === 'swarm';
-    swarmTimeline.classList.toggle('hidden', !isSwarmMode && !webSearchEnabled);
-    window.MessageView?.resetTaskPlan();
-    if (isSwarmMode || webSearchEnabled) window.SwarmGraph?.begin();
+  // ---------- Peticiones ----------
 
-    vscode.postMessage({
+  function displayTextFor(text, media) {
+    if (text) return text;
+    return media.map((item) => item.name || 'Adjunto').join(', ');
+  }
+
+  function send({ text, media }) {
+    if (state.request) return;
+    setWelcome(false);
+    const requestId = `request_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const userRow = window.MessageView.appendUser(text, media);
+    const userEntry = { role: 'user', content: text || displayTextFor(text, media) };
+    state.conversation.push(userEntry);
+    state.request = { id: requestId, userRow, userEntry };
+    window.MessageView.beginPending();
+    setBusy(true);
+    post({
       type: 'sendMessage',
       payload: {
-        sessionId: currentSessionId,
+        sessionId: state.sessionId,
         requestId,
         model: modelSelect.value,
-        messages: conversationHistory,
+        messages: state.conversation.slice(-MAX_CONTEXT_MESSAGES),
         skillKey: skillSelect.value,
-        isSwarmMode,
-        mediaItems: mediaForRequest,
-        autoContext: window.WorkspaceView?.isAutoContextEnabled() ?? true,
-        webSearchEnabled
+        isSwarmMode: modeSelect.value === 'swarm',
+        mediaItems: media,
+        autoContext: window.Composer.isAutoContextEnabled(),
+        webSearchEnabled: false
       }
     });
-
-    attachedMedia = [];
-    renderMediaPreview();
+    persist();
   }
 
-  function handleAiResponse(payload) {
-    if (payload.revertedUndoId) window.MessageView?.markUndoUsed(payload.revertedUndoId, true);
-    const pending = payload.requestId ? pendingAudioRequests.get(payload.requestId) : null;
-    if (payload.transcribedPrompt && pending) {
-      pending.userEntry.content = payload.transcribedPrompt;
-    } else if (payload.transcribedPrompt && conversationHistory.length && conversationHistory[conversationHistory.length - 1].role === 'user') {
-      conversationHistory[conversationHistory.length - 1].content = payload.transcribedPrompt;
+  function cancel() {
+    if (!state.request) return;
+    post({ type: 'cancelRequest', payload: { requestId: state.request.id } });
+    window.MessageView.setStatus('Deteniendo…');
+  }
+
+  function matches(payload) {
+    return Boolean(state.request) && (!payload?.requestId || payload.requestId === state.request.id);
+  }
+
+  /** La petición en curso y todavía ligada al hilo visible. */
+  function isCurrent(payload) {
+    return matches(payload) && !state.request.detached;
+  }
+
+  /** Cierra una petición desligada sin pintar nada. Devuelve true si lo era. */
+  function settleDetached(payload) {
+    if (!matches(payload) || !state.request.detached) return false;
+    finishRequest();
+    return true;
+  }
+
+  function finishRequest() {
+    state.request = null;
+    setBusy(false);
+  }
+
+  function onResponse(payload = {}) {
+    if (settleDetached(payload)) return;
+    if (payload.revertedUndoId) window.MessageView.markUndoUsed(payload.revertedUndoId, true);
+    if (!isCurrent(payload)) {
+      window.MessageView.appendAssistant(payload.content, payload.provider, { files: payload.fileChanges || [], undoId: payload.undoId || '', warning: payload.warning });
+      return;
     }
-    conversationHistory.push({ role: 'assistant', content: payload.content });
-    if (payload.requestId) pendingAudioRequests.delete(payload.requestId);
-    window.MessageView?.appendAssistant(payload.content, payload.provider, {
-      files: payload.fileChanges || [], undoId: payload.undoId || ''
+    if (payload.transcribedPrompt) state.request.userEntry.content = payload.transcribedPrompt;
+    state.conversation.push({ role: 'assistant', content: payload.content });
+    window.MessageView.finishPending({
+      content: payload.content, provider: payload.provider,
+      files: payload.fileChanges || [], undoId: payload.undoId || '', warning: payload.warning || ''
     });
+    finishRequest();
   }
 
-  function handleAudioTranscript(payload = {}) {
-    const pending = pendingAudioRequests.get(payload.requestId);
-    if (!pending || !payload.text) return;
-    const bubble = pending.userRow?.querySelector('.user-bubble');
-    if (bubble) bubble.textContent = payload.displayText || payload.text;
-    pending.userEntry.content = payload.text;
-  }
-
-  function appendErrorMessage(msg) {
-    window.MessageView?.appendError(msg);
-  }
-
-  function handleSelection({ selectedText, language, actionType }) {
-    if (!selectedText) {
-      appendErrorMessage('Selecciona código en el editor antes de usar esta acción.');
-      return;
-    }
-    const instructions = {
-      explain: 'Explica este código y señala su propósito y posibles riesgos.',
-      refactor: 'Refactoriza este código, conserva su comportamiento y explica los cambios.',
-      fix: 'Busca errores en este código y propone una versión corregida.'
-    };
-    promptInput.value = `${instructions[actionType] || instructions.explain}\n\n\`\`\`${language || ''}\n${selectedText}\n\`\`\``;
-    resizePromptInput();
-    promptInput.focus();
-  }
-
-  function toggleVoiceDictation() {
-    if (isRecording) {
-      recognition?.stop();
-      return;
-    }
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      appendErrorMessage('Este Webview no ofrece reconocimiento de voz. Puedes escribir o pegar el texto.');
-      return;
-    }
-    const prefix = promptInput.value.trim();
-    recognition = new SpeechRecognition();
-    recognition.lang = 'es-CO';
-    recognition.interimResults = true;
-    recognition.onstart = () => { isRecording = true; btnMic.classList.add('mic-recording'); };
-    recognition.onresult = (event) => {
-      let confirmed = '', interim = '';
-      for (let index = 0; index < event.results.length; index += 1) {
-        const transcript = event.results[index][0].transcript.trim();
-        if (event.results[index].isFinal) confirmed += `${transcript} `;
-        else interim += `${transcript} `;
+  function onError(payload = {}) {
+    if (settleDetached(payload)) return;
+    const message = payload.message || 'Error desconocido.';
+    if (isCurrent(payload) && window.MessageView.hasPending()) {
+      window.MessageView.failPending(message, payload.kind === 'warning' ? 'warning' : 'error');
+      // La pregunta fallida no se reenvía como contexto; vuelve al cuadro para reintentar.
+      const { userEntry } = state.request;
+      const index = state.conversation.lastIndexOf(userEntry);
+      if (index >= 0) state.conversation.splice(index, 1);
+      if (!window.Composer.getDraft().trim() && userEntry.content) {
+        window.Composer.setText(userEntry.content);
+        window.Composer.showNote('Tu mensaje volvió al cuadro de texto: pulsa Enter para reintentarlo.');
       }
-      promptInput.value = [prefix, confirmed.trim(), interim.trim()].filter(Boolean).join(' ');
-      resizePromptInput();
-    };
-    recognition.onerror = (event) => {
-      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        appendErrorMessage('VS Code bloqueó el acceso al micrófono en este Webview. Usa el dictado de Windows o escribe el mensaje; la transcripción cloud está desactivada para evitar cargos.');
-      } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
-        appendErrorMessage(`Dictado por voz: ${event.error}. Puedes escribir el mensaje; la transcripción cloud está desactivada para evitar cargos.`);
-      }
-    };
-    recognition.onend = () => { isRecording = false; btnMic.classList.remove('mic-recording'); };
-    try { recognition.start(); } catch (error) { appendErrorMessage(`No se pudo iniciar el dictado: ${error.message}`); }
-  }
-
-  function renderMediaPreview() {
-    mediaPreview.innerHTML = '';
-    mediaPreview.classList.toggle('hidden', attachedMedia.length === 0);
-    attachedMedia.forEach((m, i) => {
-      const tag = document.createElement('span'); tag.className = 'media-tag';
-      tag.textContent = `${mediaIcon(m.category)} ${m.name || (m.category === 'audio' ? 'Audio' : m.category === 'text' ? 'Archivo' : 'Imagen')} ✕`;
-      tag.onclick = () => { attachedMedia.splice(i, 1); renderMediaPreview(); };
-      mediaPreview.appendChild(tag);
-    });
-  }
-
-  // Event Listeners y Triggers
-  btnAttach.onclick = () => mediaFileInput.click();
-  btnRecommendLocalModel.onclick = () => vscode.postMessage({ type: 'recommendLocalModel' });
-  btnInstallLocalModel.onclick = () => {
-    const model = btnInstallLocalModel.dataset.model;
-    if (model) vscode.postMessage({ type: 'installLocalModel', payload: { model } });
-  };
-  btnClearFolder.onclick = (event) => {
-    event.stopPropagation();
-    vscode.postMessage({ type: 'clearWorkspaceFolder' });
-    setSelectedFolder(null);
-  };
-  folderDropChip.onclick = () => {
-    if (!folderDropChip.dataset.path) vscode.postMessage({ type: 'pickWorkspaceFolder' });
-  };
-
-  function setSelectedFolder(folder) {
-    const selected = Boolean(folder?.path);
-    folderDropChip.classList.toggle('folder-selected', selected);
-    folderDropChip.dataset.path = selected ? folder.path : '';
-    folderDropName.textContent = selected
-      ? `📂 Carpeta de tarea: ${folder.name}`
-      : '📂 Arrastra una carpeta aquí para elegir el proyecto';
-    folderDropChip.title = selected ? folder.path : 'Arrastra una carpeta local hasta aquí para usarla como contexto de lectura y escritura. También puedes pulsar para elegirla.';
-    btnClearFolder.classList.toggle('hidden', !selected);
-  }
-
-  function filePathToUri(filePath) {
-    const normalized = String(filePath || '').replace(/\\/g, '/');
-    if (!normalized) return '';
-    const segments = normalized.split('/').filter(Boolean);
-    if (/^[a-z]:$/i.test(segments[0] || '')) segments[0] = segments[0].toUpperCase();
-    return `file:///${segments.map((segment, index) => index === 0 && /^[A-Z]:$/.test(segment) ? segment : encodeURIComponent(segment)).join('/')}`;
-  }
-
-  function collectDroppedUris(value, output) {
-    if (typeof value === 'string') {
-      if (value.startsWith('file://')) output.add(value);
-      else {
-        const matches = value.match(/file:\/\/[^\s"'<>]+/g) || [];
-        matches.forEach((uri) => output.add(uri.replace(/[),;]+$/, '')));
-      }
-      return;
-    }
-    if (Array.isArray(value)) { value.forEach((item) => collectDroppedUris(item, output)); return; }
-    if (value && typeof value === 'object') {
-      if (value.scheme === 'file' && typeof value.path === 'string') output.add(filePathToUri(value.fsPath || value.path));
-      Object.values(value).forEach((item) => collectDroppedUris(item, output));
-    }
-  }
-
-  function extractDroppedUris(dataTransfer) {
-    const uris = new Set();
-    const uriList = dataTransfer.getData('text/uri-list');
-    uriList.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.startsWith('file://')).forEach((uri) => uris.add(uri));
-    const explorerData = dataTransfer.getData('application/vnd.code.tree.explorer');
-    if (explorerData) {
-      try { collectDroppedUris(JSON.parse(explorerData), uris); } catch { collectDroppedUris(explorerData, uris); }
-    }
-    const plainText = dataTransfer.getData('text/plain').trim();
-    if (/^(?:[a-z]:\\|\\\\)/i.test(plainText)) uris.add(filePathToUri(plainText));
-    return [...uris].slice(0, 20);
-  }
-
-  function mediaIcon(category) {
-    return category === 'audio' ? '🎧' : category === 'text' ? '📄' : '🖼️';
-  }
-
-  const textExtensions = new Set([
-    'c','cc','cpp','cs','css','dockerfile','go','gradle','gitignore','h','html','ini','java','js','jsx','json','kt','kts','makefile','md','php',
-    'properties','ps1','py','rs','scss','sh','sql','svelte','toml','ts','tsx','txt','vue','xml','yaml','yml'
-  ]);
-  const audioMimeByExtension = {
-    mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/m4a', aac: 'audio/aac',
-    ogg: 'audio/ogg', flac: 'audio/flac', aiff: 'audio/aiff', aif: 'audio/aiff',
-    webm: 'audio/webm', opus: 'audio/opus'
-  };
-  const imageTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
-  const sensitiveName = /(?:^\.env(?:\..*)?$|^local\.properties$|secret|credential|token|^id_(?:rsa|ed25519)|\.(?:pem|key|p12|pfx|jks|keystore)$)/i;
-
-  function readAsDataUrl(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(new Error(`No se pudo leer ${file.name}.`));
-      reader.readAsDataURL(file);
-    });
-  }
-
-  async function addFileAttachments(files) {
-    const items = Array.from(files || []);
-    let audioTotal = attachedMedia.filter((item) => item.category === 'audio').reduce((sum, item) => sum + (item.size || 0), 0);
-    let textTotal = attachedMedia.filter((item) => item.category === 'text').reduce((sum, item) => sum + (item.size || 0), 0);
-    let mediaTotal = attachedMedia.filter((item) => ['audio', 'image'].includes(item.category)).reduce((sum, item) => sum + (item.size || 0), 0);
-    for (const file of items.slice(0, 12)) {
-      const name = String(file.name || 'archivo').split(/[\\/]/).pop();
-      const extension = name.split('.').pop().toLowerCase();
-      if (sensitiveName.test(name)) { appendErrorMessage(`Por seguridad no adjunté «${name}» porque parece contener credenciales.`); continue; }
-      const mimeType = audioMimeByExtension[extension] || file.type || '';
-      if (textExtensions.has(extension) || /^text\//i.test(mimeType) || ['application/json','application/xml'].includes(mimeType)) {
-        if (file.size > 64 * 1024 || textTotal + file.size > 160 * 1024) {
-          appendErrorMessage('Los archivos de texto pueden pesar hasta 64 KB cada uno y 160 KB en conjunto.');
-          continue;
-        }
-        try {
-          const content = await file.text();
-          if (content.includes('\u0000')) { appendErrorMessage(`No adjunté «${name}» porque parece binario.`); continue; }
-          attachedMedia.push({ category: 'text', mimeType: mimeType || 'text/plain', content, name, size: file.size });
-          textTotal += file.size;
-        } catch (error) { appendErrorMessage(error.message); }
-        continue;
-      }
-      const category = mimeType.startsWith('audio/') ? 'audio' : 'image';
-      const validType = category === 'audio'
-        ? Object.values(audioMimeByExtension).includes(mimeType)
-        : imageTypes.has(mimeType);
-      const maxBytes = category === 'audio' ? 12 * 1024 * 1024 : 8 * 1024 * 1024;
-      if (!validType || file.size > maxBytes || (category === 'audio' && audioTotal + file.size > maxBytes) || mediaTotal + file.size > 20 * 1024 * 1024) {
-        appendErrorMessage(category === 'audio'
-          ? 'Adjunta audio MP3, WAV, M4A, AAC, OGG, FLAC, AIFF, WebM u Opus. El audio total debe ser de hasta 12 MB y los medios juntos hasta 20 MB.'
-          : `No reconozco «${name}». Adjunta código/documentos de texto, imágenes PNG/JPEG/WebP/GIF o audio compatible.`);
-        continue;
-      }
-      try {
-        const data = await readAsDataUrl(file);
-        attachedMedia.push({ mimeType, data, name, size: file.size, category });
-        if (category === 'audio') audioTotal += file.size;
-        mediaTotal += file.size;
-      } catch (error) { appendErrorMessage(error.message); }
-    }
-    if (items.length > 12) appendErrorMessage('Adjunté solo los primeros 12 archivos de la selección.');
-    renderMediaPreview();
-  }
-
-  function handleImportedFiles(payload = {}) {
-    for (const item of payload.files || []) {
-      if (item?.category === 'text' && typeof item.content === 'string') attachedMedia.push(item);
-      else if (['image', 'audio'].includes(item?.category) && typeof item.data === 'string') attachedMedia.push(item);
-    }
-    renderMediaPreview();
-    if (payload.directories?.length) {
-      setSelectedFolder(payload.directories[0]);
+      finishRequest();
     } else {
-      folderDropName.textContent = attachedMedia.length ? `${attachedMedia.length} archivos adjuntos` : 'Sin carpeta seleccionada';
+      window.MessageView.appendNotice(message, 'error');
     }
-    if (payload.skipped?.length) appendErrorMessage(payload.skipped.join('\n'));
   }
 
-  [document, folderDropChip, $('chatContainer')].forEach((target) => {
-    if (!target) return;
-    target.addEventListener('dragenter', (event) => {
-      const types = Array.from(event.dataTransfer?.types || []);
-      if (types.some((type) => /uri-list|tree\.explorer|Files/i.test(type)) || event.dataTransfer?.files?.length) {
-        event.preventDefault();
-      }
-    });
-    target.addEventListener('dragover', (event) => {
-      const types = Array.from(event.dataTransfer?.types || []);
-      if (types.some((type) => /uri-list|tree\.explorer|Files/i.test(type)) || event.dataTransfer?.files?.length) {
-        event.preventDefault();
-        folderDropChip.classList.add('folder-drop-active');
-      }
-    });
-    target.addEventListener('dragleave', (event) => {
-      if (!target.contains(event.relatedTarget)) folderDropChip.classList.remove('folder-drop-active');
-    });
-    target.addEventListener('drop', (event) => {
-      folderDropChip.classList.remove('folder-drop-active');
-      const transfer = event.dataTransfer;
-      const items = Array.from(transfer?.items || []);
-      const files = Array.from(transfer?.files || []);
-      const containsRealFiles = files.some((file) => file.size > 0 || (file.type && file.type !== ''));
-      const containsFolder = items.some((item) => {
-        try { return item.webkitGetAsEntry?.()?.isDirectory; } catch { return false; }
-      }) || files.some((file) => !file.type && file.size === 0);
-      const fileUris = extractDroppedUris(transfer);
-      if (files.length && (containsRealFiles || !containsFolder)) {
-        event.preventDefault(); event.stopPropagation();
-        folderDropName.textContent = files.length === 1 ? files[0].name : `${files.length} archivos`;
-        addFileAttachments(files);
-        return;
-      }
-      if (fileUris.length) {
-        event.preventDefault(); event.stopPropagation();
-        folderDropName.textContent = 'Procesando arrastre…';
-        vscode.postMessage({ type: 'importDroppedItems', payload: { uris: fileUris } });
-        return;
-      }
-      if (containsFolder) {
-        event.preventDefault();
-        event.stopPropagation();
-        folderDropName.textContent = 'Selecciona la carpeta…';
-        vscode.postMessage({ type: 'pickWorkspaceFolder' });
-      }
-    });
-  });
-  mediaFileInput.onchange = async (e) => {
-    await addFileAttachments(e.target.files);
-    mediaFileInput.value = '';
+  function onCancelled(payload = {}) {
+    if (settleDetached(payload) || !isCurrent(payload)) return;
+    window.MessageView.cancelPending();
+    // La pregunta sin respuesta se queda en el historial visible, pero no se reenvía como contexto.
+    const index = state.conversation.lastIndexOf(state.request.userEntry);
+    if (index >= 0) state.conversation.splice(index, 1);
+    finishRequest();
+  }
+
+  function onAudioTranscript(payload = {}) {
+    if (!isCurrent(payload) || !payload.text) return;
+    window.MessageView.setUserText(state.request.userRow, payload.displayText || payload.text);
+    state.request.userEntry.content = payload.text;
+  }
+
+  function onSelection({ selectedText, language, actionType } = {}) {
+    if (!selectedText) { window.Composer.showNote('Selecciona código en el editor antes de usar esta acción.'); return; }
+    const instructions = {
+      explain: 'Explica este código: qué hace, por qué y qué riesgos ves.',
+      refactor: 'Refactoriza este código sin cambiar su comportamiento y explica cada cambio.',
+      fix: 'Busca errores en este código y propón una versión corregida.'
+    };
+    window.HistoryView.close();
+    window.SettingsView.close();
+    window.Composer.setText(`${instructions[actionType] || instructions.explain}\n\n\`\`\`${language || ''}\n${selectedText}\n\`\`\``);
+  }
+
+  function onCommand({ action } = {}) {
+    if (action === 'newChat') startNewChat();
+    else if (action === 'history') { window.SettingsView.close(); post({ type: 'getHistory' }); window.HistoryView.open(); }
+    else if (action === 'settings') { window.HistoryView.close(); post({ type: 'getApiConfig' }); window.SettingsView.open(); }
+  }
+
+  // ---------- Mensajes de la extensión ----------
+
+  const handlers = {
+    modelsList: (payload) => renderModels(payload.models, payload.defaultModel),
+    activeContext: (payload) => {
+      window.Composer.setActiveEditor(payload.activeEditor || null);
+      window.Composer.setFolder(payload.selectedFolderPath ? { name: payload.selectedFolder, path: payload.selectedFolderPath } : null);
+    },
+    historyList: (payload) => window.HistoryView.render(payload.sessions, state.sessionId),
+    sessionLoaded: (payload) => restoreSession(payload.session),
+    apiConfig: (payload) => window.SettingsView.populate(payload),
+    apiConfigSaved: (payload) => window.SettingsView.showSaveResult(payload),
+    testProvidersResult: (payload) => window.SettingsView.renderTestResults(payload),
+    folderSelected: (payload) => window.Composer.setFolder(payload),
+    filesImported: (payload) => { window.Composer.showNote(''); window.Composer.addImported(payload); },
+    localModelRecommendation: (payload) => window.SettingsView.showLocalModelRecommendation(payload),
+    localModelProgress: (payload) => window.SettingsView.showLocalModelProgress(payload),
+    undoResult: (payload) => {
+      window.MessageView.markUndoUsed(payload.undoId, payload.success);
+      window.MessageView.appendNotice(payload.content, payload.success ? 'info' : 'error');
+    },
+    activeSelection: onSelection,
+    aiResponse: onResponse,
+    swarmProgress: (payload) => { if (isCurrent(payload)) window.MessageView.updateProgress(payload); },
+    taskPlan: (payload) => { if (isCurrent(payload)) window.MessageView.showTaskPlan(payload); },
+    audioTranscript: onAudioTranscript,
+    audioStatus: (payload) => { if (payload.text) window.MessageView.setStatus(payload.text); },
+    status: (payload) => {
+      if (payload.loading || !matches(payload)) return;
+      if (state.request.detached || !window.MessageView.hasPending()) finishRequest();
+    },
+    requestCancelled: onCancelled,
+    error: onError,
+    notice: (payload) => window.UI.toast(payload.message, { kind: payload.kind || 'info' }),
+    command: onCommand
   };
 
-  btnSend.onclick = () => sendPrompt();
-  btnMic.onclick = toggleVoiceDictation;
-  btnWebSearch.onclick = () => {
-    webSearchEnabled = !webSearchEnabled;
-    btnWebSearch.setAttribute('aria-pressed', String(webSearchEnabled));
-    btnWebSearch.title = 'Búsqueda web desactivada en modo sin costo; esta solicitud no consultará Internet';
-  };
-  promptInput.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPrompt(); } };
-  promptInput.addEventListener('input', resizePromptInput);
-  window.addEventListener('resize', resizePromptInput);
-  resizePromptInput();
-  btnNewChat.onclick = startNewChat;
-  btnHistory.onclick = () => window.HistoryView?.toggle(true);
-  btnSettings.onclick = () => window.SettingsView?.toggle(true);
+  window.addEventListener('message', (event) => {
+    const { type, payload } = event.data || {};
+    if (typeof type !== 'string') return;
+    if (type.startsWith('diff')) { window.CodeActions.handle(type, payload || {}); return; }
+    handlers[type]?.(payload || {});
+  });
+
+  // ---------- Arranque ----------
+
+  window.MessageView.init({ chatContainer: $('chatContainer'), messagesList: $('messagesList'), postMessage: post });
+  window.CodeActions.init({ root: $('messagesList'), postMessage: post, onError: (message) => window.MessageView.appendNotice(message, 'error') });
+  window.HistoryView.init({
+    modelName,
+    onSelect: (id) => post({ type: 'loadSession', payload: { id } }),
+    onDelete: (id) => {
+      post({ type: 'deleteChat', payload: { id } });
+      if (id === state.sessionId) { resetThread(); state.sessionId = newSessionId(); persist(); }
+    },
+    onClearAll: () => post({ type: 'clearAllChats' })
+  });
+  window.SettingsView.init({
+    onSave: (patch) => post({ type: 'saveApiConfig', payload: patch }),
+    onTest: () => post({ type: 'testProviders' }),
+    onRecommend: () => post({ type: 'recommendLocalModel' }),
+    onInstall: (model) => post({ type: 'installLocalModel', payload: { model } }),
+    onClosed: () => window.Composer.focus()
+  });
+  window.Composer.init({ post, onSend: send, onStop: cancel, onDraft: persist });
+
+  document.querySelectorAll('.suggestion').forEach((button) => {
+    button.addEventListener('click', () => window.Composer.setText(button.dataset.prompt || ''));
+  });
+  [modelSelect, modeSelect, skillSelect].forEach((select) => select.addEventListener('change', () => {
+    modelSelect.title = `Modelo: ${modelName(modelSelect.value)}`;
+    persist();
+  }));
+
+  if (saved.mode) modeSelect.value = saved.mode;
+  if (saved.skill) skillSelect.value = saved.skill;
+  if (saved.draft) window.Composer.setText(saved.draft);
+
+  post({ type: 'ready', payload: { sessionId: saved.sessionId || '' } });
+  // Si el panel se recargó, se recupera la conversación en curso desde el historial.
+  if (saved.sessionId) post({ type: 'loadSession', payload: { id: saved.sessionId, silent: true } });
 })();

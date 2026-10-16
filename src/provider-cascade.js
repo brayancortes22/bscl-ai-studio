@@ -2,6 +2,10 @@
  * Ejecutor de cascada multi-modelo para Gemini, Groq, Cerebras y OpenRouter en BSCL AI Studio.
  * Inspirado en gemini-provider.js y ai-service.js de Figma AI Copilot.
  * Autor: Brayan Stid Cortés Lombana (bscl)
+ *
+ * Contrato de cada cascada: devuelve { result, failure } y nunca lanza por un fallo del
+ * proveedor. Sí lanza si la llamada se canceló o venció su plazo global: tragarse ese error lo
+ * convertía en "proveedor en enfriamiento" y la cascada seguía gastando tiempo.
  */
 const {
   GEMINI_2026_MODELS,
@@ -10,6 +14,7 @@ const {
   groqModelsForRole
 } = require('./free-cloud-fallback');
 const { compactMessages, summarizeProviderError } = require('./message-compactor');
+const { cancellationError, throwIfCancelled } = require('./provider-cooldown');
 
 function maxTokensForRole(roleHint = '') {
   if (roleHint === 'coder' || roleHint === 'architect') return 8192;
@@ -17,97 +22,169 @@ function maxTokensForRole(roleHint = '') {
   return 4096;
 }
 
-class ProviderCascade {
-  static async tryGeminiCascade(client, messages, roleHint = '', preferredModel = '') {
-    if (!client.geminiApiKey) return { result: null, failure: '' };
-    const providerAuthCooldown = client.providerCooldown.get('gemini:auth');
-    if (providerAuthCooldown) {
-      return { result: null, failure: `Gemini omitido (${providerAuthCooldown.reason})` };
-    }
+// Solo dos fallos son del proveedor entero: la clave rechazada y no poder conectar (DNS, conexión
+// rechazada, proxy que no deja pasar). El timeout por petición no entra: la conexión se hizo y lo
+// lento fue ese modelo generando, así que se enfría ese modelo y se sigue con el siguiente; el
+// plazo global de sendMessage acota el total. Antes un timeout dejaba fuera a Gemini 3 min,
+// incluso para otro modelo elegido a mano.
+const isConnectionFailure = (error) => Boolean(error?.connectionFailed);
+const isAuthFailure = (error) => [401, 403].includes(Number(error?.status));
 
-    const releaseSlot = await client.providerCooldown.acquire('gemini', 3);
-    const failures = [];
+/**
+ * Motivo para no llamar al proveedor, o ''. Con un modelo elegido a mano (explicit) no se mira el
+ * enfriamiento de red: un fallo de conexión cuesta milisegundos (o ~10 s si nadie contesta) y la
+ * persona pidió ese modelo, así que se prueba en vez de contestar "omitido" sin intentarlo. La
+ * clave rechazada sí se respeta: con la misma clave el 401 se repetiría (cambiarla limpia el
+ * enfriamiento en updateConfig).
+ */
+function providerSkipReason(client, provider, label, { explicit = false } = {}) {
+  const keys = explicit ? [`${provider}:auth`] : [`${provider}:auth`, `${provider}:net`];
+  for (const key of keys) {
+    const cooldown = client.providerCooldown.get(key);
+    if (cooldown) return `${label} omitido (${cooldown.reason}; reintento en ${Math.ceil(cooldown.retryInMs / 1000)} s)`;
+  }
+  return '';
+}
+
+/**
+ * Registra el fallo donde toca y devuelve true si hay que dejar de probar este proveedor.
+ * sameKey es false si la clave cambió durante la llamada: ese fallo no dice nada de la nueva.
+ */
+function recordCascadeFailure(client, provider, modelId, error, sameKey = true) {
+  const auth = isAuthFailure(error);
+  const providerWide = auth || isConnectionFailure(error);
+  const key = providerWide ? `${provider}:${auth ? 'auth' : 'net'}` : `${provider}:${modelId}`;
+  if (sameKey) client.providerCooldown.recordFailure(key, error);
+  return providerWide;
+}
+
+/** Una respuesta buena demuestra que la red llega: Automático deja de saltarse el proveedor. */
+function recordCascadeSuccess(client, provider, modelId, result) {
+  client.providerCooldown.forget(`${provider}:net`);
+  client.providerCooldown.recordQuota(`${provider}:${modelId}`, result.quota);
+}
+
+/**
+ * Bucle común de las cascadas: prueba los candidatos en orden, salta los modelos en
+ * enfriamiento y se detiene ante un fallo de todo el proveedor (clave o conexión).
+ * send(modelId) hace la petición; revision() da la revisión de la clave en ese momento.
+ */
+async function runCandidates(client, { provider, label, exhaustedLabel = label, candidates, preferredModel = '', revision = () => 0, send, mapResult = (result) => result, signal }) {
+  const failures = [];
+  let attempted = 0;
+  const attempt = async (modelId) => {
+    attempted += 1;
+    const credentialRevision = revision();
+    try {
+      const result = await send(modelId);
+      recordCascadeSuccess(client, provider, modelId, result);
+      return { result: mapResult(result, modelId), failure: '' };
+    } catch (error) {
+      if (signal?.aborted) throw cancellationError(signal);
+      if (recordCascadeFailure(client, provider, modelId, error, credentialRevision === revision())) {
+        return { result: null, failure: `${label}: ${summarizeProviderError(error.message)}` };
+      }
+      failures.push(`${modelId}: ${summarizeProviderError(error.message)}`);
+      return null;
+    }
+  };
+
+  for (const modelId of candidates) {
+    throwIfCancelled(signal);
+    if (client.providerCooldown.get(`${provider}:${modelId}`)) continue;
+    const outcome = await attempt(modelId);
+    if (outcome) return outcome;
+  }
+  // Con un modelo elegido a mano y todos los candidatos en enfriamiento se prueba al menos ese:
+  // contestar "en enfriamiento" sin intentar nada no le dice a la persona si ya funciona. Si
+  // queda otro modelo libre se usa ese, para no repetir la espera de uno que acaba de fallar.
+  if (!attempted && preferredModel) {
+    throwIfCancelled(signal);
+    const outcome = await attempt(preferredModel);
+    if (outcome) return outcome;
+  }
+  return {
+    result: null,
+    failure: failures.length ? `${exhaustedLabel} (${failures.slice(0, 2).join('; ')})` : `${label} en enfriamiento temporal`
+  };
+}
+
+class ProviderCascade {
+  static skipReason(client, provider, label, options) {
+    return providerSkipReason(client, provider, label, options);
+  }
+
+  static async tryGeminiCascade(client, messages, roleHint = '', preferredModel = '', { signal } = {}) {
+    if (!client.geminiApiKey) return { result: null, failure: '' };
+    const skipped = providerSkipReason(client, 'gemini', 'Gemini', { explicit: Boolean(preferredModel) });
+    if (skipped) return { result: null, failure: skipped };
+
+    const releaseSlot = await client.providerCooldown.acquire('gemini', 3, signal);
     try {
       const candidates = preferredModel
         ? [preferredModel, ...geminiModelsForRole(roleHint).filter((m) => m !== preferredModel)]
         : geminiModelsForRole(roleHint);
-
-      for (const modelId of candidates) {
-        const cooldown = client.providerCooldown.get(`gemini:${modelId}`);
-        if (cooldown) continue;
-
-        const credentialRevision = client.geminiCredentialRevision;
-        try {
-          const result = await client.sendCompatibleRequest({
-            model: modelId,
-            messages,
-            baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-            apiKey: client.geminiApiKey,
-            providerName: `Gemini Free (${modelId})`,
-            timeoutMs: 45000
-          });
-          client.providerCooldown.recordQuota(`gemini:${modelId}`, result.quota);
-          return { result: { ...result, model: `google/${modelId}` }, failure: '' };
-        } catch (error) {
-          if (credentialRevision === client.geminiCredentialRevision) {
-            if ([401, 403].includes(Number(error.status))) {
-              client.providerCooldown.recordFailure('gemini:auth', error);
-              return { result: null, failure: `Gemini: ${summarizeProviderError(error.message)}` };
-            }
-            client.providerCooldown.recordFailure(`gemini:${modelId}`, error);
-          }
-          failures.push(`${modelId}: ${summarizeProviderError(error.message)}`);
-        }
-      }
-      return {
-        result: null,
-        failure: failures.length ? `Cascada Gemini agotada (${failures.slice(0, 2).join('; ')})` : 'Gemini en enfriamiento temporal'
-      };
+      return await runCandidates(client, {
+        provider: 'gemini', label: 'Gemini', exhaustedLabel: 'Cascada Gemini agotada', candidates, preferredModel, signal,
+        revision: () => client.geminiCredentialRevision,
+        mapResult: (result, modelId) => ({ ...result, model: `google/${modelId}` }),
+        send: (modelId) => client.sendCompatibleRequest({
+          model: modelId,
+          messages,
+          baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+          apiKey: client.geminiApiKey,
+          providerName: `Gemini Free (${modelId})`,
+          timeoutMs: 45000,
+          signal
+        })
+      });
     } finally {
       releaseSlot();
     }
   }
 
-  static async tryCerebrasCascade(client, messages, roleHint = '', preferredModel = '') {
+  // Solo se llega aquí con un modelo cerebras: elegido por el usuario; Automático no lo usa.
+  static async tryCerebrasCascade(client, messages, roleHint = '', preferredModel = '', { signal } = {}) {
     if (!client.cerebrasApiKey) return { result: null, failure: '' };
+    const skipped = providerSkipReason(client, 'cerebras', 'Cerebras', { explicit: Boolean(preferredModel) });
+    if (skipped) return { result: null, failure: skipped };
     const release = client.providerCooldown.tryAcquire('cerebras', 2);
     if (!release) return { result: null, failure: 'Cerebras ocupado' };
     try {
       const baseIds = CEREBRAS_FREE_MODELS.map((m) => m.id);
       const candidates = preferredModel ? [preferredModel, ...baseIds.filter((m) => m !== preferredModel)] : baseIds;
-      for (const modelId of candidates) {
-        if (client.providerCooldown.get(`cerebras:${modelId}`)) continue;
-        try {
-          const result = await client.sendCompatibleRequest({
-            model: modelId,
-            messages: compactMessages(messages, 28000),
-            baseUrl: 'https://api.cerebras.ai/v1',
-            apiKey: client.cerebrasApiKey,
-            providerName: `Cerebras Free · ${modelId}`,
-            timeoutMs: 30000,
-            maxCompletionTokens: maxTokensForRole(roleHint)
-          });
-          client.providerCooldown.recordQuota(`cerebras:${modelId}`, result.quota);
-          return { result: { ...result, model: `cerebras:${modelId}` }, failure: '' };
-        } catch (error) {
-          client.providerCooldown.recordFailure(`cerebras:${modelId}`, error);
-        }
-      }
-      return { result: null, failure: 'Cerebras en enfriamiento temporal' };
+      const compacted = compactMessages(messages, 28000);
+      // Antes todo fallo salía como "enfriamiento temporal": un 401 de una clave heredada que el
+      // usuario no puede ver en la UI quedaba oculto. runCandidates muestra la causa real.
+      return await runCandidates(client, {
+        provider: 'cerebras', label: 'Cerebras', candidates, preferredModel, signal,
+        mapResult: (result, modelId) => ({ ...result, model: `cerebras:${modelId}` }),
+        send: (modelId) => client.sendCompatibleRequest({
+          model: modelId,
+          messages: compacted,
+          baseUrl: 'https://api.cerebras.ai/v1',
+          apiKey: client.cerebrasApiKey,
+          providerName: `Cerebras · ${modelId}`,
+          timeoutMs: 30000,
+          maxCompletionTokens: maxTokensForRole(roleHint),
+          signal
+        })
+      });
     } finally {
       release();
     }
   }
 
-  static async tryGroqCascade(client, messages, roleHint = '', preferredModel = '', hasImages = false) {
+  static async tryGroqCascade(client, messages, roleHint = '', preferredModel = '', hasImages = false, { signal } = {}) {
     if (!client.groqFreeEnabled || !client.groqApiKey || hasImages) return { result: null, failure: '' };
-    const authCooldown = client.providerCooldown.get('groq:auth');
-    if (authCooldown) return { result: null, failure: `Groq omitido (${authCooldown.reason})` };
+    const skipped = providerSkipReason(client, 'groq', 'Groq', { explicit: Boolean(preferredModel) });
+    if (skipped) return { result: null, failure: skipped };
 
     const release = client.providerCooldown.tryAcquire('groq', 2);
     if (!release) return { result: null, failure: 'Groq ocupado con tareas concurrentes' };
     try {
-      const available = await client.fetchGroqModelCatalog();
+      const available = await client.fetchGroqModelCatalog(signal);
+      throwIfCancelled(signal);
       const ordered = groqModelsForRole(roleHint, available);
       const candidates = preferredModel
         ? [preferredModel, ...ordered.filter((m) => m !== preferredModel)]
@@ -115,41 +192,51 @@ class ProviderCascade {
 
       const compacted = compactMessages(messages, 28000);
       const maxTokens = Math.min(4096, maxTokensForRole(roleHint));
-      const failures = [];
-
-      for (const modelId of candidates) {
-        if (client.providerCooldown.get(`groq:${modelId}`)) continue;
-        const credentialRevision = client.groqCredentialRevision;
-        try {
-          const result = await client.sendCompatibleRequest({
-            model: modelId,
-            messages: compacted,
-            baseUrl: 'https://api.groq.com/openai/v1',
-            apiKey: client.groqApiKey,
-            providerName: `Groq Free · ${modelId}`,
-            timeoutMs: 45000,
-            maxCompletionTokens: maxTokens
-          });
-          client.providerCooldown.recordQuota(`groq:${modelId}`, result.quota);
-          return { result: { ...result, model: `groq:${modelId}` }, failure: '' };
-        } catch (error) {
-          if (credentialRevision === client.groqCredentialRevision) {
-            if ([401, 403].includes(Number(error.status))) {
-              client.providerCooldown.recordFailure('groq:auth', error);
-              return { result: null, failure: `Groq: ${summarizeProviderError(error.message)}` };
-            }
-            client.providerCooldown.recordFailure(`groq:${modelId}`, error);
-          }
-          failures.push(`${modelId}: ${summarizeProviderError(error.message)}`);
-        }
-      }
-      return {
-        result: null,
-        failure: failures.length ? `Groq (${failures[0]})` : 'Groq en enfriamiento temporal'
-      };
+      return await runCandidates(client, {
+        provider: 'groq', label: 'Groq', candidates, preferredModel, signal,
+        revision: () => client.groqCredentialRevision,
+        mapResult: (result, modelId) => ({ ...result, model: `groq:${modelId}` }),
+        send: (modelId) => client.sendCompatibleRequest({
+          model: modelId,
+          messages: compacted,
+          baseUrl: 'https://api.groq.com/openai/v1',
+          apiKey: client.groqApiKey,
+          providerName: `Groq Free · ${modelId}`,
+          timeoutMs: 45000,
+          maxCompletionTokens: maxTokens,
+          signal
+        })
+      });
     } finally {
       release();
     }
+  }
+
+  /**
+   * OpenRouter :free en Automático. Antes solo se probaba el primer modelo verificado: si daba
+   * 429, el resto de modelos gratuitos y openrouter/free (ADR-014) nunca llegaban a probarse.
+   */
+  static async tryOpenRouterCascade(client, messages, { signal } = {}) {
+    if (!client.openRouterApiKey) return { result: null, failure: '' };
+    const skipped = providerSkipReason(client, 'openrouter', 'OpenRouter');
+    if (skipped) return { result: null, failure: skipped };
+
+    const verified = await client.fetchVerifiedOpenRouterFreeModels(signal);
+    throwIfCancelled(signal);
+    const candidates = [...new Set([...verified.slice(0, 3).map((m) => m.id), 'openrouter/free'])];
+    return runCandidates(client, {
+      provider: 'openrouter', label: 'OpenRouter', candidates, signal,
+      revision: () => client.openRouterCredentialRevision,
+      send: (modelId) => client.sendCompatibleRequest({
+        model: modelId,
+        messages,
+        baseUrl: 'https://openrouter.ai/api/v1',
+        apiKey: client.openRouterApiKey,
+        providerName: `OpenRouter Free (${modelId})`,
+        timeoutMs: 35000,
+        signal
+      })
+    });
   }
 }
 

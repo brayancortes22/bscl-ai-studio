@@ -34,17 +34,34 @@ class WorkspaceScopeResolver {
   }
 
   /**
+   * ¿El prompt nombra la carpeta como palabra completa? Con una subcadena, «rápido» elegía
+   * api/, «contesta» test/ y «multimedia» media/. Un punto seguido de letras cuenta como
+   * parte de la palabra para que «app.js» no apunte a la carpeta app/.
+   */
+  static mentions(normalizedPrompt, normalizedName) {
+    const escaped = normalizedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?<![a-z0-9_.-])${escaped}(?![a-z0-9_-]|\\.[a-z0-9])`).test(normalizedPrompt);
+  }
+
+  /**
    * Resuelve la carpeta de trabajo efectiva para la solicitud actual.
    * Prioridad:
-   * 1. Subcarpeta mencionada explícitamente por nombre en el prompt.
-   * 2. Carpeta seleccionada manualmente por el usuario (explicitScope).
-   * 3. Subcarpeta de primer nivel del archivo abierto actualmente en el editor.
+   * 1. Carpeta seleccionada manualmente por el usuario (explicitScope): gana siempre.
+   * 2. Sub-proyecto de primer nivel nombrado como palabra completa en el texto que escribió
+   *    el usuario (sin adjuntos). Si nombra varios, la raíz los contiene a todos.
+   * 3. Sub-proyecto de primer nivel del archivo abierto actualmente en el editor.
    * 4. Raíz del workspace abierto en VS Code.
    */
   static resolve({ prompt = '', explicitScope = null } = {}) {
+    // Una carpeta elegida a mano no se cambia en silencio: escribir en otra carpeta sin que
+    // el usuario lo sepa es peor que no encontrar la que quería.
+    if (explicitScope) {
+      return { scopePath: explicitScope, autoDetected: false, projectName: path.basename(explicitScope), reason: 'explicit' };
+    }
+
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath || null;
     if (!workspaceRoot) {
-      return { scopePath: explicitScope, autoDetected: false, projectName: explicitScope ? path.basename(explicitScope) : null };
+      return { scopePath: null, autoDetected: false, projectName: null };
     }
 
     let subdirs = [];
@@ -60,30 +77,19 @@ class WorkspaceScopeResolver {
       subdirs = [];
     }
 
-    // 1. ¿El prompt menciona explícitamente una subcarpeta del workspace?
+    // 2. ¿El prompt nombra un sub-proyecto del workspace? Solo cuentan carpetas que son
+    // proyecto: test/, media/ o src/ de un proyecto único no son un alcance distinto.
     const normalizedPrompt = this.normalize(prompt);
     if (normalizedPrompt && subdirs.length > 0) {
-      const matchedByPrompt = subdirs
-        .filter((dir) => dir.normalized.length >= 3 && normalizedPrompt.includes(dir.normalized))
-        .sort((a, b) => b.normalized.length - a.normalized.length)[0];
-      if (matchedByPrompt) {
-        return {
-          scopePath: matchedByPrompt.fullPath,
-          autoDetected: matchedByPrompt.fullPath !== explicitScope,
-          projectName: matchedByPrompt.name,
-          reason: 'prompt'
-        };
+      const matchedByPrompt = subdirs.filter((dir) => dir.normalized.length >= 3 &&
+        this.mentions(normalizedPrompt, dir.normalized) && this.isProjectDirectory(dir.fullPath));
+      if (matchedByPrompt.length === 1) {
+        const [match] = matchedByPrompt;
+        return { scopePath: match.fullPath, autoDetected: true, projectName: match.name, reason: 'prompt' };
       }
-    }
-
-    // 2. Si el usuario ya fijó manualmente una carpeta concreta, respetarla
-    if (explicitScope && fs.existsSync(explicitScope)) {
-      return {
-        scopePath: explicitScope,
-        autoDetected: false,
-        projectName: path.basename(explicitScope),
-        reason: 'explicit'
-      };
+      if (matchedByPrompt.length > 1) {
+        return { scopePath: workspaceRoot, autoDetected: false, projectName: path.basename(workspaceRoot), reason: 'workspace_root' };
+      }
     }
 
     // 3. Si la raíz no es un proyecto único sino un contenedor de múltiples proyectos,

@@ -3,6 +3,7 @@
  * Inspirado en gemini-provider.js y free-cloud.js de Figma AI Copilot.
  * Autor: Brayan Stid Cortés Lombana (bscl)
  */
+const { timeoutSignal, cancellationError, throwIfCancelled } = require('./provider-cooldown');
 
 const GEMINI_2026_MODELS = [
   'gemini-3.6-flash',
@@ -24,7 +25,8 @@ const GROQ_FREE_MODELS = [
 ];
 
 const CEREBRAS_FREE_MODELS = [
-  { id: 'llama-3.3-70b', label: 'Llama 3.3 70B (2600 t/s · 1M tok/día)' },
+  // Sin "1M tok/día": según ADR-017 esa cifra ya no corresponde a la página de precios de Cerebras.
+  { id: 'llama-3.3-70b', label: 'Llama 3.3 70B (2600 t/s)' },
   { id: 'llama3.1-8b', label: 'Llama 3.1 8B Instant (Cerebras)' }
 ];
 
@@ -51,19 +53,86 @@ function groqModelsForRole(roleHint = '', availableIds = []) {
   return matched.length ? matched : ids.filter((id) => availableIds.includes(id));
 }
 
-async function callFreeCloudDirect(messages = [], preferredModel = 'openai', timeoutMs = 35000) {
+// Marcas con las que el host y los agentes introducen datos del proyecto o del editor. La UI
+// promete que la Nube Pública (Pollinations, servicio público sin clave) nunca los recibe.
+const CONTEXT_MARKERS = [
+  '[Contexto del Editor Activo',
+  'CONTEXTO DEL WORKSPACE',
+  'CONTEXTO DEL PROYECTO',
+  'CONTEXTO DEL EDITOR',
+  'CONTEXTO REAL DEL WORKSPACE',
+  '[CONTEXTO REAL DE LA CARPETA',
+  'CONTEXTO INICIAL ADJUNTO',
+  '[ARCHIVO ADJUNTO',
+  '[Carpeta de proyecto activa',
+  '[Inventario de la carpeta',
+  // BrainContext añade al final del prompt base (antes del contexto del editor) hasta 1500
+  // caracteres de una nota local del vault del usuario.
+  '[Nota de referencia de Obsidian'
+];
+// Solo el chat directo puede ir a la Nube Pública. Los agentes (coder, architect, qa, critic,
+// subagent, planner, researcher…) arman prompts con código o rutas del proyecto y cada uno lo
+// etiqueta a su manera: la lista de marcas nunca estará completa para ellos.
+const CHAT_ROLE_HINTS = new Set(['', 'chat', 'general']);
+
+function messageText(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) return content.map((p) => (p?.type === 'text' ? p.text || '' : '')).join('\n');
+  return String(content || '');
+}
+
+function firstMarkerIndex(text) {
+  const positions = CONTEXT_MARKERS.map((marker) => text.indexOf(marker)).filter((index) => index >= 0);
+  return positions.length ? Math.min(...positions) : -1;
+}
+
+/** Motivo por el que una conversación no puede ir a la Nube Pública, o '' si puede. */
+function publicCloudBlockReason(messages = [], roleHint = '') {
+  if (!CHAT_ROLE_HINTS.has(String(roleHint || ''))) return `tarea del agente «${roleHint}», que usa datos del proyecto`;
+  const marker = CONTEXT_MARKERS.find((item) => messages.some((m) => messageText(m?.content).includes(item)));
+  return marker ? `la conversación lleva contexto del workspace o del editor (${marker}…)` : '';
+}
+
+/**
+ * Quita del system prompt el contexto que añade el host (editor activo, carpeta, inventario).
+ * El host lo concatena al final del prompt base, así que se corta en la primera marca: si
+ * alguna vez va en medio, se pierde de más, nunca de menos.
+ */
+function stripSystemContext(messages = []) {
+  return messages.map((m) => {
+    if (m?.role !== 'system') return m;
+    const text = messageText(m.content);
+    const cut = firstMarkerIndex(text);
+    return cut < 0 ? m : { ...m, content: text.slice(0, cut).trimEnd() };
+  }).filter((m) => m?.role !== 'system' || messageText(m.content).trim());
+}
+
+/**
+ * Lo único que Automático manda a la Nube Pública: los system recortados y el último mensaje
+ * del usuario. El historial no viaja porque el contexto del editor llega en el system prompt de
+ * cada turno sin dejar marca en el historial, pero las respuestas guardadas del asistente
+ * suelen citar ese código: un «gracias» en el turno siguiente lo publicaba entero.
+ */
+function lastTurnOnly(messages = []) {
+  const stripped = stripSystemContext(messages);
+  const lastUser = [...stripped].reverse().find((m) => m?.role === 'user');
+  return [...stripped.filter((m) => m?.role === 'system'), ...(lastUser ? [lastUser] : [])];
+}
+
+async function callFreeCloudDirect(messages = [], preferredModel = 'openai', timeoutMs = 35000, signal) {
   const normalizedMessages = messages.map((msg) => ({
     role: ['system', 'user', 'assistant'].includes(msg?.role) ? msg.role : 'user',
-    content: typeof msg?.content === 'string'
-      ? msg.content
-      : Array.isArray(msg?.content)
-        ? msg.content.map((p) => (p?.type === 'text' ? p.text : '')).filter(Boolean).join('\n')
-        : String(msg?.content || '')
+    content: messageText(msg?.content)
   }));
+  // Última barrera: aunque un llamador futuro se salte las comprobaciones de AiClient, el
+  // contexto del workspace no sale hacia el servicio público.
+  const blocked = publicCloudBlockReason(normalizedMessages);
+  if (blocked) throw new Error(`La Nube Pública no recibe contexto del workspace ni del editor: ${blocked}.`);
 
   const modelsToTry = preferredModel === 'mistral' ? ['mistral', 'openai'] : ['openai', 'mistral'];
   let lastErr = null;
   for (const model of modelsToTry) {
+    throwIfCancelled(signal);
     try {
       const res = await fetch('https://text.pollinations.ai/', {
         method: 'POST',
@@ -73,7 +142,7 @@ async function callFreeCloudDirect(messages = [], preferredModel = 'openai', tim
           model,
           seed: Math.floor(Math.random() * 100000)
         }),
-        signal: AbortSignal.timeout(timeoutMs)
+        signal: timeoutSignal(timeoutMs, signal)
       });
       if (res.ok) {
         const text = (await res.text()).trim();
@@ -88,6 +157,7 @@ async function callFreeCloudDirect(messages = [], preferredModel = 'openai', tim
         lastErr = new Error(`HTTP ${res.status}`);
       }
     } catch (err) {
+      if (signal?.aborted) throw cancellationError(signal);
       lastErr = err;
     }
   }
@@ -99,7 +169,11 @@ module.exports = {
   GROQ_FREE_MODELS,
   CEREBRAS_FREE_MODELS,
   FREE_CLOUD_MODELS,
+  CONTEXT_MARKERS,
   geminiModelsForRole,
   groqModelsForRole,
+  publicCloudBlockReason,
+  stripSystemContext,
+  lastTurnOnly,
   callFreeCloudDirect
 };

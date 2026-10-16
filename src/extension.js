@@ -2,55 +2,43 @@ const vscode = require('vscode');
 const { BsclChatViewProvider } = require('./view-provider');
 
 /**
- * Activación de la extensión BSCL AI Studio v0.8.0
+ * Activación de BSCL AI Studio.
  * Autor: Brayan Stid Cortés Lombana (bscl)
  * @param {vscode.ExtensionContext} context
  */
 function activate(context) {
   const provider = new BsclChatViewProvider(context.extensionUri, context);
 
-  // 1. Registro del Webview en la barra de actividades
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('bsclAi.chatView', provider, {
       webviewOptions: { retainContextWhenHidden: true }
     })
   );
 
-  // 2. Comandos de la extensión
-  const commands = [
-    vscode.commands.registerCommand('bsclAi.openChat', () => {
-      vscode.commands.executeCommand('workbench.view.extension.bscl-ai-sidebar');
-    }),
-    vscode.commands.registerCommand('bsclAi.explainSelection', () => {
-      vscode.commands.executeCommand('workbench.view.extension.bscl-ai-sidebar');
-      provider.sendActiveSelection('explain');
-    }),
-    vscode.commands.registerCommand('bsclAi.refactorSelection', () => {
-      vscode.commands.executeCommand('workbench.view.extension.bscl-ai-sidebar');
-      provider.sendActiveSelection('refactor');
-    }),
-    vscode.commands.registerCommand('bsclAi.fixBugs', () => {
-      vscode.commands.executeCommand('workbench.view.extension.bscl-ai-sidebar');
-      provider.sendActiveSelection('fix');
-    })
-  ];
+  // Los comandos abren el panel si hace falta; el proveedor guarda el mensaje hasta que
+  // el webview esté listo, así que funcionan aunque la barra lateral nunca se haya abierto.
+  const commands = {
+    'bsclAi.openChat': () => provider.reveal(),
+    'bsclAi.newChat': () => provider.runCommand('newChat'),
+    'bsclAi.showHistory': () => provider.runCommand('history'),
+    'bsclAi.openSettings': () => provider.runCommand('settings'),
+    'bsclAi.explainSelection': () => provider.sendActiveSelection('explain'),
+    'bsclAi.refactorSelection': () => provider.sendActiveSelection('refactor'),
+    'bsclAi.fixBugs': () => provider.sendActiveSelection('fix')
+  };
+  for (const [id, handler] of Object.entries(commands)) {
+    context.subscriptions.push(vscode.commands.registerCommand(id, handler));
+  }
 
-  context.subscriptions.push(...commands);
-
-  // 3. Sincronización en tiempo real del archivo enfocado y pestañas
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(() => provider.sendActiveContext()),
-    vscode.window.onDidChangeVisibleTextEditors(() => provider.sendActiveContext()),
-    vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('bsclAi')) provider.reloadConfig();
+    vscode.window.onDidChangeTextEditorSelection(() => provider.sendActiveContext()),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('bsclAi')) provider.reloadConfig().then(() => provider.sendModelsList()).catch(() => {});
     })
   );
-
-  console.log('✅ [BSCL AI Studio v0.8.0] Extensión activada con éxito.');
 }
 
-function deactivate() {
-  console.log('🛑 [BSCL AI Studio] Extensión desactivada.');
-}
+function deactivate() {}
 
 module.exports = { activate, deactivate };

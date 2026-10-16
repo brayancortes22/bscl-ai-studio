@@ -3,311 +3,279 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} data: blob:; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}}; font-src {{cspSource}};">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} data: blob:; style-src {{cspSource}}; script-src 'nonce-{{nonce}}'; font-src {{cspSource}};">
   <title>BSCL AI Studio</title>
-  <link rel="stylesheet" href="{{stylesUri}}">
+  <link rel="stylesheet" href="{{asset:styles.css}}">
 </head>
 <body>
-  <div class="bscl-app">
-    <!-- Cabecera Limpia Refero AAA -->
-    <header class="app-header">
-      <!-- Barra Superior de Identidad + Versión Activa + Selector Central -->
-      <div class="pill-model-container">
-        <span id="appVersionBadge" class="version-pill" title="Versión activa de BSCL AI Studio">v{{appVersion}}</span>
-        <div class="model-glow-pill">
-          <span class="model-pill-icon">⚡</span>
-          <select id="modelSelect" class="clean-model-select">
-            <option value="smart-router" selected>⚡ Automático · 100% Cloud Gratis (0% PC)</option>
-            <option value="openrouter:openrouter/free">🆓 OpenRouter · modelo gratuito en la nube</option>
-            <option value="free-cloud:openai">☁️ Nube Pública Gratis · sin API Key</option>
-          </select>
-          <span class="chevron-down">▾</span>
-        </div>
-      </div>
+  <!-- Iconos: trazos de 16 px que toman el color del texto (y por tanto del tema). -->
+  <svg class="icon-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+    <symbol id="i-logo" viewBox="0 0 24 24"><path d="M12 2.2 3.5 7.1v9.8l8.5 4.9 8.5-4.9V7.1z"/><path d="M9 8h3.6c1.3 0 2.3.8 2.3 2s-.9 1.9-1.9 2c1.2.1 2.2 1 2.2 2.3 0 1.4-1.1 2.3-2.6 2.3H9z"/><path d="M9 12h3.8"/></symbol>
+    <symbol id="i-add" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+    <symbol id="i-close" viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8"/></symbol>
+    <symbol id="i-check" viewBox="0 0 16 16"><path d="m3 8.5 3.2 3L13 4.5"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 16 16"><path d="m6 4 4 4-4 4"/></symbol>
+    <symbol id="i-back" viewBox="0 0 16 16"><path d="M13 8H3m4-4L3 8l4 4"/></symbol>
+    <symbol id="i-send" viewBox="0 0 16 16"><path d="M8 13V3M4 7l4-4 4 4"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-history" viewBox="0 0 16 16"><path d="M2.6 8a5.4 5.4 0 1 0 1.6-3.8"/><path d="M2.5 2.6v2.6h2.6M8 5.2v3l2 1.3"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 16 16"><path d="M2.5 4h6m3 0h2m-11 4h2m3 0h6m-11 4h7m3 0h1"/><circle cx="10" cy="4" r="1.5"/><circle cx="6" cy="8" r="1.5"/><circle cx="11" cy="12" r="1.5"/></symbol>
+    <symbol id="i-attach" viewBox="0 0 16 16"><path d="m10.5 4.6-4.8 4.8a1.5 1.5 0 0 0 2.1 2.1l5-5a3 3 0 0 0-4.2-4.2l-5 5a4.5 4.5 0 0 0 6.4 6.4l3.3-3.3"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 16 16"><path d="M2 4.6A1.6 1.6 0 0 1 3.6 3H6l1.5 1.5h4.9A1.6 1.6 0 0 1 14 6.1v5.3a1.6 1.6 0 0 1-1.6 1.6H3.6A1.6 1.6 0 0 1 2 11.4z"/></symbol>
+    <symbol id="i-file" viewBox="0 0 16 16"><path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="7.5" height="7.5" rx="1.4"/><path d="M3 10.5V4.4C3 3.6 3.6 3 4.4 3h6.1"/></symbol>
+    <symbol id="i-insert" viewBox="0 0 16 16"><path d="M8 2v7.5M5 6.5l3 3 3-3M3 13h10"/></symbol>
+    <symbol id="i-error" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="m6 6 4 4m0-4-4 4"/></symbol>
+    <symbol id="i-warning" viewBox="0 0 16 16"><path d="M8 2.5 14.3 13.5H1.7z"/><path d="M8 6.5v3.2m0 1.9v.1"/></symbol>
+    <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 7.3v3.7m0-6v.1"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5m-5 0 .6 8.5h5.8l.6-8.5"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 16 16"><path d="M1.5 8S3.9 3.5 8 3.5 14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 16 16"><path d="M1.5 8S3.9 3.5 8 3.5 14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/><path d="m2.5 2.5 11 11"/></symbol>
+    <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="m10.4 10.4 3.1 3.1"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 16 16"><path d="M5 3.8 2.5 6.3 5 8.8"/><path d="M2.5 6.3h7a3.5 3.5 0 0 1 0 7H7"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 16 16"><path d="m8 1.8 1.5 4.7 4.7 1.5-4.7 1.5L8 14.2l-1.5-4.7L1.8 8l4.7-1.5z"/></symbol>
+    <symbol id="i-circle" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5"/></symbol>
+    <symbol id="i-spinner" viewBox="0 0 16 16"><path d="M8 2.5a5.5 5.5 0 1 1-5.5 5.5"/></symbol>
+    <symbol id="i-skip" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5"/><path d="M5.6 8h4.8"/></symbol>
+    <symbol id="i-image" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><circle cx="6" cy="6.6" r="1.1"/><path d="m14 11-3.5-3.5L4 13"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13 3v3.4H9.6"/><path d="M13 6.4A5.4 5.4 0 1 0 13.4 9"/></symbol>
+    <symbol id="i-bug" viewBox="0 0 16 16"><rect x="5" y="5" width="6" height="8.5" rx="3"/><path d="M8 7.5v6M5 8.5H2.5m11 0H11M5 11.5H3m10 0h-2M6.2 3.2 7 5m2.8-1.8L9 5"/></symbol>
+    <symbol id="i-book" viewBox="0 0 16 16"><path d="M2.5 3.5h4A1.5 1.5 0 0 1 8 5v8a1.5 1.5 0 0 0-1.5-1.5h-4zm11 0h-4A1.5 1.5 0 0 0 8 5v8a1.5 1.5 0 0 1 1.5-1.5h4z"/></symbol>
+    <symbol id="i-beaker" viewBox="0 0 16 16"><path d="M5.5 2h5M6.5 2v4.5L3 13.5h10L9.5 6.5V2M4.7 10.2h6.6"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 16 16"><path d="M8 2 14 5.2 8 8.4 2 5.2z"/><path d="m2 8 6 3.2L14 8M2 10.8 8 14l6-3.2"/></symbol>
+  </svg>
 
-      <!-- Barra de Acciones Rápidas & Modos -->
-      <div class="header-action-row">
-        <div class="quick-pill-group">
-          <button id="btnNewChat" class="pill-action-btn pill-btn-accent" title="Iniciar nueva conversación">➕ Nuevo</button>
-          <button id="btnHistory" class="pill-action-btn" title="Historial de conversaciones">📜 Historial</button>
-          <button id="btnSettings" class="pill-action-btn" title="Configurar APIs y cuentas">⚙️ APIs</button>
-        </div>
-        <div class="mode-skill-group">
-          <select id="modeSelect" class="pill-sub-select" title="Los agentes se seleccionan según la solicitud">
-            <option value="swarm">⚡ Agentes según la tarea</option>
-            <option value="direct">💬 Chat Directo</option>
-          </select>
-          <select id="skillSelect" class="pill-sub-select" title="Skill de Obsidian">
-            <option value="general">🧠 Cerebro</option>
-            <option value="clean-code">🧼 Clean Code</option>
-            <option value="architecture">🏛️ Arquitectura</option>
-            <option value="devsecops">🛡️ DevSecOps</option>
-            <option value="ui-ux">🎨 UI/UX</option>
-          </select>
-        </div>
-      </div>
+  <div class="app" id="app">
+    <div id="progressBar" class="progress-bar" role="progressbar" aria-label="Procesando" hidden></div>
 
-      <!-- Barra de Conciencia de Workspace en Tiempo Real -->
-      <div class="workspace-context-bar">
-        <div id="activeFileChip" class="active-file-chip" title="Archivo activo enfocado">
-          <span class="dot-online"></span>
-          <span id="activeFileName">Detectando editor...</span>
+    <main id="chatContainer" class="thread" aria-label="Conversación">
+      <section id="welcomeMessage" class="welcome" aria-labelledby="welcomeTitle">
+        <span class="welcome-mark" aria-hidden="true"><svg class="icon"><use href="#i-logo"></use></svg></span>
+        <h1 id="welcomeTitle">BSCL AI Studio</h1>
+        <p>Pregunta, pide cambios o revisa código. Arrastra una carpeta o archivos al cuadro de abajo para darle contexto.</p>
+        <div class="suggestions" role="list">
+          <button type="button" class="suggestion" role="listitem" data-prompt="Explica qué hace el archivo activo y señala los riesgos que veas."><svg class="icon" aria-hidden="true"><use href="#i-book"></use></svg>Explica el archivo activo</button>
+          <button type="button" class="suggestion" role="listitem" data-prompt="Busca errores en el archivo activo y propón correcciones concretas."><svg class="icon" aria-hidden="true"><use href="#i-bug"></use></svg>Busca errores en el archivo activo</button>
+          <button type="button" class="suggestion" role="listitem" data-prompt="Escribe tests para el archivo activo cubriendo los casos límite."><svg class="icon" aria-hidden="true"><use href="#i-beaker"></use></svg>Escribe tests para el archivo activo</button>
+          <button type="button" class="suggestion" role="listitem" data-prompt="Resume la estructura de este proyecto: carpetas, módulos principales y cómo se conectan."><svg class="icon" aria-hidden="true"><use href="#i-layers"></use></svg>Resume la estructura del proyecto</button>
         </div>
-        <label class="auto-context-toggle" title="Incluir automáticamente el código del archivo activo">
-          <input type="checkbox" id="chkAutoContext" checked>
-          <span>Auto-Context</span>
-        </label>
-      </div>
-    </header>
-
-    <!-- Feed de Conversación Principal -->
-    <main id="chatContainer" class="messages-canvas">
-      <div id="welcomeMessage" class="empty-state">
-        <div class="empty-spark">✦</div>
-        <h2>BSCL AI Studio <span class="version-pill version-pill-inline">v{{appVersion}}</span></h2>
-        <p>Tu asistente agéntico omnimodal con visión total de tu workspace.</p>
-        <div class="empty-shortcuts">
-          <span class="shortcut-tag">⚡ Modo Automático</span>
-          <span class="shortcut-tag">📂 Conciencia de Código</span>
-          <span class="shortcut-tag">📜 Historial Persistente</span>
-        </div>
-      </div>
-
-      <div id="swarmTimeline" class="swarm-capsule-card hidden">
-        <div class="swarm-badge-row">
-          <span class="swarm-pulse-dot"></span>
-          <span id="swarmStepBadge" class="swarm-badge-role">Orquestando...</span>
-        </div>
-        <div id="swarmStepText" class="swarm-step-description">Analizando requerimiento...</div>
-        <section id="taskPlanCard" class="task-plan-card hidden" aria-live="polite">
-          <div class="task-plan-heading"><span>🧭 Tarea detectada</span><strong id="taskPlanTitle"></strong></div>
-          <p id="taskPlanGoal" class="task-plan-goal"></p>
-          <ol id="taskPlanSteps" class="task-plan-steps"></ol>
-          <div id="taskPlanAgents" class="task-plan-agents"></div>
-        </section>
-        <section id="subagentActivity" class="subagent-activity hidden" aria-live="polite">
-          <div class="subagent-activity-heading"><strong>Subagentes en ejecución</strong><span id="subagentCount">0 / 0</span></div>
-          <div id="subagentActivityList" class="subagent-activity-list"></div>
-        </section>
-        <section id="swarmGraph" class="swarm-graph" aria-label="Estado de los agentes del enjambre">
-          <button class="swarm-node" data-agent-id="researcher" type="button" aria-label="Agente Investigador">
-            <span class="swarm-node-heading">🌐 Investigador</span><span class="swarm-node-state">En espera</span><span class="swarm-node-model">Sin búsqueda web en modo gratis</span>
-          </button>
-          <span class="swarm-connector" aria-hidden="true">↓</span>
-          <button class="swarm-node" data-agent-id="architect" type="button" aria-label="Agente Arquitecto">
-            <span class="swarm-node-heading">🏛️ Arquitecto</span><span class="swarm-node-state">En espera</span><span class="swarm-node-model">Modelo pendiente</span>
-          </button>
-          <span class="swarm-connector" aria-hidden="true">↓</span>
-          <button class="swarm-node" data-agent-id="coder" type="button" aria-label="Agente Programador">
-            <span class="swarm-node-heading">💻 Programador</span><span class="swarm-node-state">En espera</span><span class="swarm-node-model">Modelo pendiente</span>
-          </button>
-          <div class="swarm-parallel-label">Revisión concurrente</div>
-          <div class="swarm-parallel-row">
-            <button class="swarm-node" data-agent-id="critic" type="button" aria-label="Agente Crítico multimodal">
-              <span class="swarm-node-heading">🎨 Crítico</span><span class="swarm-node-state">En espera</span><span class="swarm-node-model">Modelo pendiente</span>
-            </button>
-            <button class="swarm-node" data-agent-id="qa" type="button" aria-label="Agente Auditor QA">
-              <span class="swarm-node-heading">🛡️ Auditor QA</span><span class="swarm-node-state">En espera</span><span class="swarm-node-model">Modelo pendiente</span>
-            </button>
-          </div>
-          <p id="swarmAgentDetails" class="swarm-agent-details" aria-live="polite">Selecciona un agente para ver su estado.</p>
-        </section>
-      </div>
-
-      <div id="messagesList" class="thread-stack"></div>
-
-      <div id="loadingIndicator" class="thinking-row hidden">
-        <div class="thinking-dots"><span></span><span></span><span></span></div>
-        <span class="thinking-label">Razonando con el modelo...</span>
-      </div>
+        <p class="welcome-hint"><kbd>Enter</kbd> envía · <kbd>Shift</kbd> + <kbd>Enter</kbd> salto de línea · <kbd>Esc</kbd> detiene</p>
+      </section>
+      <div id="messagesList" class="messages" aria-live="polite" aria-relevant="additions"></div>
     </main>
 
-    <!-- Cápsula Flotante Inferior de Entrada -->
-    <footer class="docked-footer">
-      <div id="folderDropChip" class="folder-drop-chip" title="Arrastra una carpeta local hasta aquí para usarla como contexto de lectura y escritura">
-        <span id="folderDropName">📂 Arrastra una carpeta aquí para elegir el proyecto</span>
-        <button id="btnClearFolder" class="folder-clear-btn hidden" type="button" title="Dejar de usar esta carpeta">✕</button>
+    <footer class="composer-dock">
+      <div id="composer" class="composer">
+        <div class="context-row" id="contextRow">
+          <span class="chip-group">
+            <button type="button" id="folderChip" class="chip placeholder" title="Elige la carpeta sobre la que trabajarán los agentes (también puedes arrastrarla aquí)">
+              <svg class="icon" aria-hidden="true"><use href="#i-folder"></use></svg><span id="folderName">Elegir carpeta</span>
+            </button>
+            <button type="button" id="btnClearFolder" class="chip-remove" aria-label="Dejar de usar esta carpeta" title="Dejar de usar esta carpeta" hidden><svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg></button>
+          </span>
+          <button type="button" id="activeFileChip" class="chip" aria-pressed="true" title="Incluir el archivo activo como contexto">
+            <svg class="icon" aria-hidden="true"><use href="#i-file"></use></svg><span id="activeFileName">Sin archivo activo</span>
+          </button>
+          <span id="mediaPreview" class="context-row-items" hidden></span>
+        </div>
+        <label for="promptInput" class="sr-only">Mensaje</label>
+        <textarea id="promptInput" rows="1" placeholder="Pregunta o pide un cambio…" spellcheck="true"></textarea>
+        <div class="composer-toolbar">
+          <div class="toolbar-group grow">
+            <button type="button" id="btnAttach" class="icon-btn" aria-label="Adjuntar archivos" title="Adjuntar código, documentos o imágenes"><svg class="icon" aria-hidden="true"><use href="#i-attach"></use></svg></button>
+            <span class="select-wrap">
+              <select id="modeSelect" class="ghost-select" aria-label="Modo" title="Agentes: el sistema decide qué agentes intervienen. Chat: respuesta directa.">
+                <option value="swarm">Agentes</option>
+                <option value="direct">Chat</option>
+              </select>
+              <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg>
+            </span>
+            <span class="select-wrap">
+              <select id="skillSelect" class="ghost-select" aria-label="Enfoque" title="Enfoque de las instrucciones del modelo">
+                <option value="general">General</option>
+                <option value="clean-code">Clean Code</option>
+                <option value="architecture">Arquitectura</option>
+                <option value="devsecops">DevSecOps</option>
+                <option value="ui-ux">UI/UX</option>
+                <option value="multiagent">Multiagente</option>
+                <option value="database">Bases de datos</option>
+                <option value="qa-testing">QA y tests</option>
+              </select>
+              <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg>
+            </span>
+          </div>
+          <div class="toolbar-group model-wrap">
+            <span class="select-wrap">
+              <select id="modelSelect" class="ghost-select" aria-label="Modelo" title="Modelo">
+                <option value="smart-router" selected>Automático</option>
+              </select>
+              <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg>
+            </span>
+            <button type="button" id="btnSend" class="send-btn" aria-label="Enviar" title="Enviar (Enter)" disabled><svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg></button>
+          </div>
+        </div>
       </div>
-      <div id="mediaPreview" class="media-dock-preview hidden"></div>
-      <input type="file" id="mediaFileInput" accept=".c,.cc,.cpp,.cs,.css,.dockerfile,.gitignore,.go,.gradle,.h,.html,.ini,.java,.js,.jsx,.json,.kt,.kts,.makefile,.md,.php,.properties,.ps1,.py,.rs,.scss,.sh,.sql,.svelte,.toml,.ts,.tsx,.txt,.vue,.xml,.yaml,.yml,image/png,image/jpeg,image/webp,image/gif,audio/mpeg,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/flac,audio/aiff,audio/webm,audio/opus,.mp3,.wav,.m4a,.aac,.ogg,.flac,.aiff,.aif,.webm,.opus" multiple class="sr-only">
-
-      <div class="floating-prompt-pill">
-        <button id="btnAttach" class="pill-tool-btn" title="Adjuntar código, documentos o imágenes. El audio requiere una herramienta local de transcripción">📎</button>
-        <button id="btnMic" class="pill-tool-btn mic-trigger" title="Dictado por voz (si el Webview permite el micrófono)">🎙️</button>
-        <button id="btnWebSearch" class="pill-tool-btn web-search-toggle" type="button" aria-pressed="false" title="La búsqueda web está desactivada mientras no haya una API gratuita que garantice costo cero">🌐</button>
-        <textarea id="promptInput" rows="1" placeholder="Escribe lo que necesitas o pregunta algo..."></textarea>
-        <button id="btnSend" class="glowing-send-btn" title="Enviar prompt">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-            <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-      </div>
+      <p id="composerNote" class="composer-note" aria-live="polite"></p>
+      <input type="file" id="mediaFileInput" class="sr-only" multiple tabindex="-1" aria-hidden="true"
+        accept=".c,.cc,.cpp,.cs,.css,.dockerfile,.gitignore,.go,.gradle,.h,.html,.ini,.java,.js,.jsx,.json,.kt,.kts,.makefile,.md,.php,.properties,.ps1,.py,.rs,.scss,.sh,.sql,.svelte,.toml,.ts,.tsx,.txt,.vue,.xml,.yaml,.yml,image/png,image/jpeg,image/webp,image/gif">
     </footer>
 
-    <!-- Drawer Lateral de Historial -->
-    <aside id="historyDrawer" class="side-drawer">
-      <div class="drawer-header">
-        <h3>📜 Historial de Chats</h3>
-        <div class="drawer-header-actions">
-          <button id="btnClearAllHistory" class="drawer-action-btn" title="Vaciar historial">Vaciar</button>
-          <button id="btnCloseHistory" class="drawer-close-btn">✕</button>
+    <!-- Historial -->
+    <section id="historyView" class="overlay" role="dialog" aria-modal="true" aria-labelledby="historyTitle" hidden>
+      <header class="overlay-header">
+        <button type="button" class="icon-btn" data-close-overlay aria-label="Volver al chat" title="Volver (Esc)"><svg class="icon" aria-hidden="true"><use href="#i-back"></use></svg></button>
+        <h2 id="historyTitle">Historial</h2>
+        <button type="button" id="btnClearAllHistory" class="text-btn" title="Borrar todas las conversaciones">Vaciar</button>
+      </header>
+      <div class="overlay-body">
+        <div class="search-box">
+          <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
+          <input type="search" id="historySearch" class="input" placeholder="Buscar conversaciones" aria-label="Buscar conversaciones">
         </div>
+        <div id="historySessionList" role="list"></div>
       </div>
-      <div id="historySessionList" class="drawer-body"></div>
-    </aside>
+    </section>
 
-    <!-- Modal de Configuración de APIs & Cuentas -->
-    <div id="settingsModal" class="modal-backdrop">
-      <div class="modal-card">
-        <div class="modal-header">
-          <h3>⚙️ Configuración de APIs & Cuentas</h3>
-          <button id="btnCloseSettings" class="drawer-close-btn">✕</button>
-        </div>
-        <div class="modal-body">
-          <div class="cfg-notice" role="note">🛡️ Modo automático: Gemini 3.8 Flash primero; si llega al límite, continúa con Groq Free activado y Smart AI Router (OpenRouter :free u Ollama). El sistema respeta las pausas y tiempos de reintento que informan los proveedores. Mantén Google y Groq en sus niveles gratuitos, sin método de pago ni facturación; BSCL no puede inspeccionar ese estado.</div>
-          <details class="cfg-provider-guide">
-            <summary>¿Qué IA conviene para cada tarea?</summary>
+    <!-- Ajustes -->
+    <section id="settingsView" class="overlay" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" hidden>
+      <header class="overlay-header">
+        <button type="button" class="icon-btn" data-close-overlay aria-label="Volver al chat" title="Volver (Esc)"><svg class="icon" aria-hidden="true"><use href="#i-back"></use></svg></button>
+        <h2 id="settingsTitle">Ajustes</h2>
+      </header>
+      <form id="settingsForm" class="overlay-body" novalidate>
+        <p class="settings-intro">El modo <strong>Automático</strong> usa solo proveedores gratuitos, en este orden: Gemini, Groq (si lo activas) y Smart AI Router (OpenRouter <code class="md-code">:free</code> u Ollama). Las claves se guardan en el almacén seguro de VS Code y nunca se muestran completas aquí.</p>
+
+        <section class="settings-section" aria-labelledby="secFree">
+          <h3 id="secFree">Proveedores gratuitos</h3>
+          <div class="field" data-secret="geminiApiKey">
+            <label class="field-label" for="cfgGeminiKey">Google Gemini <span class="badge ok" data-configured hidden>Configurada</span></label>
+            <div class="secret-input">
+              <input type="password" id="cfgGeminiKey" autocomplete="off" spellcheck="false" placeholder="Pega la clave de Google AI Studio">
+              <button type="button" class="icon-btn" data-toggle-visibility aria-label="Mostrar u ocultar la clave"><svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg></button>
+              <button type="button" class="icon-btn" data-clear-secret aria-label="Borrar la clave guardada" title="Borrar la clave guardada" hidden><svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg></button>
+            </div>
+            <p class="field-help">Primera opción del modo Automático (Gemini 3.8 Flash). Usa un proyecto sin facturación: la extensión no puede comprobarlo.</p>
+          </div>
+          <div class="field" data-secret="groqApiKey">
+            <label class="field-label" for="cfgGroqKey">Groq <span class="badge ok" data-configured hidden>Configurada</span></label>
+            <div class="secret-input">
+              <input type="password" id="cfgGroqKey" autocomplete="off" spellcheck="false" placeholder="Pega la clave de Groq">
+              <button type="button" class="icon-btn" data-toggle-visibility aria-label="Mostrar u ocultar la clave"><svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg></button>
+              <button type="button" class="icon-btn" data-clear-secret aria-label="Borrar la clave guardada" title="Borrar la clave guardada" hidden><svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg></button>
+            </div>
+            <label class="checkbox-row"><input type="checkbox" id="cfgGroqFreeEnabled"> <span>Usar Groq en el modo Automático cuando Gemini no responda</span></label>
+            <p class="field-help">Actívalo solo si tu cuenta sigue en el plan Free y sin método de pago. Solo se usa Qwen 3.8 27B.</p>
+          </div>
+          <div class="field" data-secret="openRouterApiKey">
+            <label class="field-label" for="cfgOpenRouterKey">OpenRouter <span class="badge ok" data-configured hidden>Configurada</span></label>
+            <div class="secret-input">
+              <input type="password" id="cfgOpenRouterKey" autocomplete="off" spellcheck="false" placeholder="sk-or-v1-…">
+              <button type="button" class="icon-btn" data-toggle-visibility aria-label="Mostrar u ocultar la clave"><svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg></button>
+              <button type="button" class="icon-btn" data-clear-secret aria-label="Borrar la clave guardada" title="Borrar la clave guardada" hidden><svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg></button>
+            </div>
+            <p class="field-help">Solo se usan modelos <code class="md-code">:free</code>. No añadas créditos si quieres mantener el coste en cero.</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Nube pública sin clave</span>
+            <label class="checkbox-row"><input type="checkbox" id="cfgFreeCloudEnabled"> <span>Usarla como último recurso en Automático</span></label>
+            <p class="field-help">Servicio público (Pollinations) que no pide clave. Nunca recibe tu código ni el contexto del workspace: solo responde preguntas generales.</p>
+          </div>
+        </section>
+
+        <section class="settings-section" aria-labelledby="secPaid">
+          <h3 id="secPaid">Proveedores de pago (opcionales)</h3>
+          <div class="field" data-secret="xaiApiKey">
+            <label class="field-label" for="cfgXaiKey">xAI Grok <span class="badge paid">De pago</span> <span class="badge ok" data-configured hidden>Configurada</span></label>
+            <div class="secret-input">
+              <input type="password" id="cfgXaiKey" autocomplete="off" spellcheck="false" placeholder="xai-…">
+              <button type="button" class="icon-btn" data-toggle-visibility aria-label="Mostrar u ocultar la clave"><svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg></button>
+              <button type="button" class="icon-btn" data-clear-secret aria-label="Borrar la clave guardada" title="Borrar la clave guardada" hidden><svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg></button>
+            </div>
+          </div>
+          <div class="field" data-secret="metaApiKey">
+            <label class="field-label" for="cfgMetaKey">Meta Muse <span class="badge paid">De pago</span> <span class="badge ok" data-configured hidden>Configurada</span></label>
+            <div class="secret-input">
+              <input type="password" id="cfgMetaKey" autocomplete="off" spellcheck="false" placeholder="LLM_…">
+              <button type="button" class="icon-btn" data-toggle-visibility aria-label="Mostrar u ocultar la clave"><svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg></button>
+              <button type="button" class="icon-btn" data-clear-secret aria-label="Borrar la clave guardada" title="Borrar la clave guardada" hidden><svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg></button>
+            </div>
+            <p class="field-help">Cobran por uso. Solo se usan si eliges uno de sus modelos en el selector; nunca en Automático.</p>
+          </div>
+        </section>
+
+        <section class="settings-section" id="legacySecrets" aria-labelledby="secLegacy" hidden>
+          <h3 id="secLegacy">Claves antiguas sin uso</h3>
+          <div class="field">
+            <p class="field-help" id="legacySecretsText">Hay claves guardadas de proveedores que esta versión ya no ofrece.</p>
+            <label class="checkbox-row"><input type="checkbox" id="cfgClearLegacy"> <span>Borrarlas al guardar</span></label>
+          </div>
+        </section>
+
+        <section class="settings-section" aria-labelledby="secLocal">
+          <h3 id="secLocal">Local</h3>
+          <div class="field-row">
+            <div class="field">
+              <label class="field-label" for="cfgOllamaUrl">Ollama</label>
+              <input type="url" id="cfgOllamaUrl" placeholder="http://localhost:11434" spellcheck="false">
+              <p class="field-error" data-error-for="ollamaUrl"></p>
+            </div>
+            <div class="field">
+              <label class="field-label" for="cfgSmartRouterUrl">Smart AI Router</label>
+              <input type="url" id="cfgSmartRouterUrl" placeholder="http://localhost:3000" spellcheck="false">
+              <p class="field-error" data-error-for="smartRouterUrl"></p>
+            </div>
+          </div>
+          <div class="field">
+            <span class="field-label">Modelo local recomendado</span>
+            <p id="localModelStatus" class="field-help">Analiza la memoria del equipo y te sugiere un modelo de Ollama que quepa antes de descargarlo.</p>
+            <div class="inline-actions">
+              <button type="button" id="btnRecommendLocalModel" class="btn secondary">Analizar equipo</button>
+              <button type="button" id="btnInstallLocalModel" class="btn secondary" disabled>Descargar recomendado</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-section" aria-labelledby="secStatus">
+          <h3 id="secStatus">Estado</h3>
+          <button type="button" id="btnTestProviders" class="btn secondary"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-refresh"></use></svg>Probar conexiones</button>
+          <ul id="testResults" class="status-list" aria-live="polite"></ul>
+        </section>
+
+        <section class="settings-section" aria-labelledby="secGuide">
+          <h3 id="secGuide">Guía</h3>
+          <details class="guide">
+            <summary>¿Qué proveedor conviene para cada tarea?</summary>
             <ul>
-              <li><strong>Gemini 3.8 Flash:</strong> opción principal para programación, razonamiento y tareas largas.</li>
-              <li><strong>Groq · Qwen 3.8 27B:</strong> respuestas muy rápidas, código, razonamiento y visión; la ruta gratuita tiene límites diarios estrictos.</li>
-              <li><strong>OpenRouter :free:</strong> alterna entre modelos gratuitos como Qwen, DeepSeek, GLM y otros disponibles; el catálogo cambia.</li>
-              <li><strong>Grok (xAI):</strong> modelos de pago con tu propia clave (grok-4.7, código y visión); solo se usa al seleccionarlo, nunca en Automático.</li>
-              <li><strong>Muse (Meta):</strong> modelos de pago con tu propia clave (muse-wonder-1.0, muse-spark-1.3, visión incluida); solo se usa al seleccionarlo, nunca en Automático.</li>
-              <li><strong>Ollama:</strong> trabajo local y privado cuando el equipo tiene RAM suficiente.</li>
-              <li><strong>Smart AI Router:</strong> coordina los modelos `:free` de OpenRouter y Ollama cuando Gemini/Groq no responden.</li>
-              <li><strong>Cerebras:</strong> inferencia muy rápida para programación y agentes; Figma lo ofrece, pero la cuenta actual empieza con solo US$5 de crédito de prueba.</li>
-              <li><strong>OpenAI API:</strong> modelos GPT de propósito general y programación; la API puede facturar, así que BSCL no la utiliza en modo sin costo.</li>
-              <li><strong>Pollinations:</strong> fallback público sin clave de Figma; recibe prompts en un servicio externo. BSCL no lo usa con contexto del workspace.</li>
+              <li><strong>Gemini 3.8 Flash:</strong> programación, razonamiento y tareas largas.</li>
+              <li><strong>Groq · Qwen 3.8 27B:</strong> respuestas muy rápidas; límites diarios estrictos.</li>
+              <li><strong>OpenRouter :free:</strong> rota entre modelos gratuitos (Qwen, DeepSeek, GLM…); el catálogo cambia.</li>
+              <li><strong>Ollama:</strong> trabajo local y privado si el equipo tiene RAM suficiente.</li>
+              <li><strong>Grok y Muse:</strong> modelos de pago con tu propia clave; solo cuando los eliges.</li>
             </ul>
           </details>
-          <div class="cfg-group">
-            <label>💎 Google Gemini API Key</label>
-            <div class="input-with-eye">
-              <input type="password" id="cfgGeminiKey" placeholder="API key de un proyecto Google AI Studio Free">
-              <button class="btn-toggle-eye" type="button">👁️</button>
-            </div>
-            <small class="cfg-help">Solo se usa Gemini 3.8 Flash. La clave se guarda en SecretStorage de VS Code. La extensión no puede comprobar si el proyecto tiene facturación vinculada; mantenlo en Free y sin facturación. Al agotarse la cuota, la extensión prueba Smart AI Router (OpenRouter :free u Ollama local). Esta clave debe pertenecer al proyecto Free que confirmaste.</small>
-          </div>
-          <div class="cfg-group">
-            <label>🚀 Groq API Key (Ultra Rápido)</label>
-            <div class="input-with-eye">
-              <input type="password" id="cfgGroqKey" placeholder="Clave API de Groq Free">
-              <button class="btn-toggle-eye" type="button">👁️</button>
-            </div>
-            <small class="cfg-help">La cuota depende de tu cuenta y puede cambiar. La extensión usa las cabeceras de cuota y los tiempos de reintento del proveedor; cuando detecta límite, pausa Groq y continúa con la siguiente opción gratuita. La extensión no puede detectar si cambiaste a un plan facturable.</small>
-            <label class="cfg-check-row"><input type="checkbox" id="cfgGroqFreeEnabled"> Usar Groq Free automáticamente después de Gemini</label>
-            <small class="cfg-help">Actívalo solo después de comprobar que tu cuenta sigue en Free y sin método de pago. Al habilitarlo, el contexto de las solicitudes automáticas se envía a Groq. Solo se permite Qwen 3.8 27B.</small>
-          </div>
-          <div class="cfg-group">
-            <label>🧠 OpenRouter API Key (solo modelos gratuitos)</label>
-            <div class="input-with-eye">
-              <input type="password" id="cfgOpenRouterKey" placeholder="sk-or-v1-...">
-              <button class="btn-toggle-eye" type="button">👁️</button>
-            </div>
-            <small class="cfg-help">Se permiten únicamente IDs terminados en :free y el router openrouter/free. El plan gratuito tiene límites diarios; no agregues créditos para mantener el costo en $0.</small>
-          </div>
-          <div class="cfg-group">
-            <label>𝕏 xAI API Key · Grok (de pago)</label>
-            <div class="input-with-eye">
-              <input type="password" id="cfgXaiKey" placeholder="xai-...">
-              <button class="btn-toggle-eye" type="button">👁️</button>
-            </div>
-            <small class="cfg-help">Activa los modelos Grok (p. ej. grok-4.7, grok-code-fast-1) en el selector. La clave se guarda en SecretStorage de VS Code y nunca en el repo. xAI cobra por uso: revisa tu saldo y límites en console.x.ai. No se usa en el modo Automático (100% gratis).</small>
-          </div>
-          <div class="cfg-group">
-            <label>🔵 Meta Model API Key · Muse (de pago)</label>
-            <div class="input-with-eye">
-              <input type="password" id="cfgMetaKey" placeholder="LLM_...">
-              <button class="btn-toggle-eye" type="button">👁️</button>
-            </div>
-            <small class="cfg-help">Activa los modelos Muse (muse-wonder-1.0, muse-spark-1.3) en el selector. La clave se guarda en SecretStorage de VS Code y nunca en el repo. Meta cobra por uso: revisa tu saldo y límites en dev.meta.ai. No se usa en el modo Automático (100% gratis).</small>
-          </div>
-          <div class="cfg-group">
-            <label>🌌 SambaNova API Key (Llama 3.3 70B)</label>
-            <div class="input-with-eye">
-              <input type="password" id="cfgSambaNovaKey" placeholder="Desactivado en modo sin costo" disabled>
-              <button class="btn-toggle-eye" type="button">👁️</button>
-            </div>
-          </div>
-          <small class="cfg-help">SambaNova también está desactivado: su clave no se consulta ni se usa.</small>
-          <div class="cfg-group-row">
-            <div class="cfg-group">
-              <label>📡 Smart Router URL</label>
-              <input type="text" id="cfgSmartRouterUrl" value="http://localhost:3000">
-            </div>
-            <div class="cfg-group">
-              <label>💻 Ollama local (solo localhost)</label>
-              <input type="text" id="cfgOllamaUrl" value="http://localhost:11434">
-            </div>
-          </div>
-          <div class="cfg-divider"></div>
-          <h4 class="cfg-section-title">🔌 APIs personalizadas (desactivadas)</h4>
-          <small class="cfg-help">No se envían solicitudes a APIs personalizadas porque su precio no se puede verificar. Los valores guardados se conservan, pero no se usan.</small>
-          <div class="cfg-group-row">
-            <div class="cfg-group">
-              <label>Nombre</label>
-              <input type="text" id="cfgCustomApiName" placeholder="Desactivado" disabled>
-            </div>
-            <div class="cfg-group">
-              <label>Modelo opcional</label>
-              <input type="text" id="cfgCustomApiModel" placeholder="Desactivado" disabled>
-            </div>
-          </div>
-          <div class="cfg-group">
-            <label>URL base (incluye /v1 cuando aplique)</label>
-            <input type="url" id="cfgCustomApiBaseUrl" placeholder="Desactivado" disabled>
-          </div>
-          <div class="cfg-group">
-            <label>Clave de API (opcional en servicios locales)</label>
-            <div class="input-with-eye">
-              <input type="password" id="cfgCustomApiKey" placeholder="Desactivado" disabled>
-              <button class="btn-toggle-eye" type="button">👁️</button>
-            </div>
-          </div>
-          <div class="cfg-divider"></div>
-          <h4 class="cfg-section-title">🧩 OpenCode Zen (modelos gratuitos)</h4>
-          <small class="cfg-help">Los modelos gratuitos de OpenCode Zen (como big-pickle y los sufijos -free) se cargan automáticamente desde su catálogo público. El servidor local de OpenCode sigue desactivado para evitar cargos: su configuración anterior se conserva, pero no se consulta ni se usa.</small>
-          <div class="cfg-group-row">
-            <div class="cfg-group">
-              <label>URL del servidor</label>
-              <input type="url" id="cfgOpenCodeUrl" placeholder="Desactivado en modo sin costo" disabled>
-            </div>
-            <div class="cfg-group">
-              <label>Usuario Basic Auth</label>
-              <input type="text" id="cfgOpenCodeUsername" value="opencode" disabled>
-            </div>
-          </div>
-          <div class="cfg-group">
-            <label>Contraseña del servidor (si la configuraste)</label>
-            <div class="input-with-eye">
-              <input type="password" id="cfgOpenCodePassword" placeholder="Desactivado en modo sin costo" disabled>
-              <button class="btn-toggle-eye" type="button">👁️</button>
-            </div>
-          </div>
-          <div class="cfg-divider"></div>
-          <h4 class="cfg-section-title">💻 Modelos locales con Ollama</h4>
-          <small id="localModelStatus" class="cfg-help">Analiza la RAM disponible y te recomienda un modelo pequeño antes de descargarlo.</small>
-          <div class="cfg-local-model-actions">
-            <button id="btnRecommendLocalModel" class="pill-action-btn" type="button">Analizar equipo</button>
-            <button id="btnInstallLocalModel" class="pill-action-btn pill-btn-primary" type="button" disabled>Descargar recomendado</button>
-          </div>
-          <div id="testResultsBadge" class="test-badge-container"></div>
-        </div>
-        <div class="modal-footer">
-          <button id="btnTestProviders" class="pill-action-btn">🧪 Probar Conexiones</button>
-          <button id="btnSaveSettings" class="pill-action-btn pill-btn-primary">Guardar Configuración</button>
-        </div>
-      </div>
-    </div>
+        </section>
+      </form>
+      <footer class="overlay-footer">
+        <span class="footer-note">v{{appVersion}}</span>
+        <span id="settingsSaveState" class="footer-note" aria-live="polite"></span>
+        <button type="button" class="btn secondary" data-close-overlay>Cancelar</button>
+        <button type="submit" form="settingsForm" id="btnSaveSettings" class="btn">Guardar</button>
+      </footer>
+    </section>
+
+    <div id="toast" class="toast" role="status" hidden></div>
   </div>
 
-  <script src="{{markdownScriptUri}}"></script>
-  <script src="{{workspaceScriptUri}}"></script>
-  <script src="{{historyScriptUri}}"></script>
-  <script src="{{settingsScriptUri}}"></script>
-  <script src="{{swarmScriptUri}}"></script>
-  <script src="{{diffActionsScriptUri}}"></script>
-  <script src="{{messageViewScriptUri}}"></script>
-  <script src="{{scriptUri}}"></script>
+  <script nonce="{{nonce}}" src="{{asset:highlight.js}}"></script>
+  <script nonce="{{nonce}}" src="{{asset:markdown.js}}"></script>
+  <script nonce="{{nonce}}" src="{{asset:sensitive-names.js}}"></script>
+  <script nonce="{{nonce}}" src="{{asset:ui.js}}"></script>
+  <script nonce="{{nonce}}" src="{{asset:message-view.js}}"></script>
+  <script nonce="{{nonce}}" src="{{asset:code-actions.js}}"></script>
+  <script nonce="{{nonce}}" src="{{asset:history.js}}"></script>
+  <script nonce="{{nonce}}" src="{{asset:settings.js}}"></script>
+  <script nonce="{{nonce}}" src="{{asset:composer.js}}"></script>
+  <script nonce="{{nonce}}" src="{{asset:main.js}}"></script>
 </body>
 </html>
