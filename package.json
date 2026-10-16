@@ -23,6 +23,15 @@
     "openrouter",
     "español"
   ],
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/brayancortes22/bscl-ai-studio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/brayancortes22/bscl-ai-studio/issues"
+  },
+  "homepage": "https://github.com/brayancortes22/bscl-ai-studio#readme",
   "main": "./src/extension.js",
   "activationEvents": [
     "onView:bsclAi.chatView"

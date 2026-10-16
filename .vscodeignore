@@ -8,3 +8,4 @@ test/**
 tools/**
 docs/**
 .gitignore
+.github/**
