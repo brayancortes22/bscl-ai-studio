@@ -131,10 +131,12 @@ window.MessageView = (function () {
     return el('section', { class: 'changes-card', 'aria-label': 'Archivos cambiados' }, [header, el('ul', { class: 'changes-list' }, items)]);
   }
 
-  function callout(message, kind = 'error') {
+  /** action opcional: { label, onClick } dibuja un botón dentro del aviso (p. ej. «Abrir ajustes»). */
+  function callout(message, kind = 'error', action = null) {
     const iconName = kind === 'warning' ? 'warning' : kind === 'info' ? 'info' : 'error';
+    const button = action ? el('button', { type: 'button', class: 'btn secondary callout-action', onclick: action.onClick }, [action.label]) : null;
     return el('div', { class: `callout ${kind === 'error' ? '' : kind}`.trim(), role: kind === 'error' ? 'alert' : 'status' }, [
-      icon(iconName), el('span', { text: message })
+      icon(iconName), el('span', { class: 'callout-text' }, [el('span', { text: message }), button])
     ]);
   }
 
@@ -150,9 +152,9 @@ window.MessageView = (function () {
     });
   }
 
-  function appendNotice(message, kind = 'error') {
+  function appendNotice(message, kind = 'error', action = null) {
     return keepPinned(() => {
-      const row = el('div', { class: 'msg msg-notice' }, [callout(message, kind)]);
+      const row = el('div', { class: 'msg msg-notice' }, [callout(message, kind, action)]);
       list.append(row);
       return row;
     });
@@ -328,13 +330,13 @@ window.MessageView = (function () {
     });
   }
 
-  function failPending(message, kind = 'error') {
-    if (!pending) return appendNotice(message, kind);
+  function failPending(message, kind = 'error', action = null) {
+    if (!pending) return appendNotice(message, kind, action);
     return keepPinned(() => {
       const current = pending;
       closeRunCard('failed');
       current.status.remove();
-      current.body.append(callout(message, kind));
+      current.body.append(callout(message, kind, action));
       pending = null;
       return current.row;
     });

@@ -53,6 +53,18 @@ function groqModelsForRole(roleHint = '', availableIds = []) {
   return matched.length ? matched : ids.filter((id) => availableIds.includes(id));
 }
 
+// Z.ai (Zhipu, GLM): modelos con precio $0 en entrada y salida según
+// https://docs.z.ai/guides/overview/pricing (comprobado el 2026-10-17). Ojo: los "FlashX" y
+// GLM-5.3-Flash COBRAN; solo estos tres son gratis. Z.ai no publica un endpoint para listar
+// modelos, así que la lista va fija y «Probar conexiones» la confirma con una petición de 1 token.
+const ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
+const ZAI_FREE_MODELS = [
+  { id: 'glm-4.7-flash', label: 'GLM-4.7-Flash' },
+  { id: 'glm-4.5-flash', label: 'GLM-4.5-Flash' }
+];
+const ZAI_FREE_VISION_MODEL = { id: 'glm-4.6v-flash', label: 'GLM-4.6V-Flash (visión)' };
+const ZAI_FREE_IDS = new Set([...ZAI_FREE_MODELS, ZAI_FREE_VISION_MODEL].map((m) => m.id));
+
 // Marcas con las que el host y los agentes introducen datos del proyecto o del editor. La UI
 // promete que la Nube Pública (Pollinations, servicio público sin clave) nunca los recibe.
 const CONTEXT_MARKERS = [
@@ -167,6 +179,10 @@ async function callFreeCloudDirect(messages = [], preferredModel = 'openai', tim
 module.exports = {
   GEMINI_2026_MODELS,
   GROQ_FREE_MODELS,
+  ZAI_BASE_URL,
+  ZAI_FREE_MODELS,
+  ZAI_FREE_VISION_MODEL,
+  ZAI_FREE_IDS,
   CEREBRAS_FREE_MODELS,
   FREE_CLOUD_MODELS,
   CONTEXT_MARKERS,

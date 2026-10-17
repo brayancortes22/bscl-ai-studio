@@ -144,7 +144,7 @@
         <h2 id="settingsTitle">Ajustes</h2>
       </header>
       <form id="settingsForm" class="overlay-body" novalidate>
-        <p class="settings-intro">El modo <strong>Automático</strong> usa solo proveedores gratuitos, en este orden: Gemini, Groq (si lo activas) y Smart AI Router (OpenRouter <code class="md-code">:free</code> u Ollama). Las claves se guardan en el almacén seguro de VS Code y nunca se muestran completas aquí.</p>
+        <p class="settings-intro">El modo <strong>Automático</strong> usa solo proveedores gratuitos en la nube, en este orden: Gemini, Groq (si lo activas), Z.ai y OpenRouter <code class="md-code">:free</code>. Necesitas al menos una clave. Las claves se guardan en el almacén seguro de VS Code y nunca se muestran completas aquí.</p>
 
         <section class="settings-section" aria-labelledby="secFree">
           <h3 id="secFree">Proveedores gratuitos</h3>
@@ -166,6 +166,15 @@
             </div>
             <label class="checkbox-row"><input type="checkbox" id="cfgGroqFreeEnabled"> <span>Usar Groq en el modo Automático cuando Gemini no responda</span></label>
             <p class="field-help">Actívalo solo si tu cuenta sigue en el plan Free y sin método de pago. Solo se usa Qwen 3.8 27B.</p>
+          </div>
+          <div class="field" data-secret="zaiApiKey">
+            <label class="field-label" for="cfgZaiKey">Z.ai (GLM) <span class="badge ok" data-configured hidden>Configurada</span></label>
+            <div class="secret-input">
+              <input type="password" id="cfgZaiKey" autocomplete="off" spellcheck="false" placeholder="Pega la clave de z.ai">
+              <button type="button" class="icon-btn" data-toggle-visibility aria-label="Mostrar u ocultar la clave"><svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg></button>
+              <button type="button" class="icon-btn" data-clear-secret aria-label="Borrar la clave guardada" title="Borrar la clave guardada" hidden><svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg></button>
+            </div>
+            <p class="field-help">Solo modelos gratuitos: GLM-4.7-Flash, GLM-4.5-Flash y GLM-4.6V-Flash (imágenes). Son más lentos que Gemini o Groq; los «FlashX» y GLM-5.3 cobran y no se usan.</p>
           </div>
           <div class="field" data-secret="openRouterApiKey">
             <label class="field-label" for="cfgOpenRouterKey">OpenRouter <span class="badge ok" data-configured hidden>Configurada</span></label>
@@ -214,17 +223,11 @@
 
         <section class="settings-section" aria-labelledby="secLocal">
           <h3 id="secLocal">Local</h3>
-          <div class="field-row">
-            <div class="field">
-              <label class="field-label" for="cfgOllamaUrl">Ollama</label>
-              <input type="url" id="cfgOllamaUrl" placeholder="http://localhost:11434" spellcheck="false">
-              <p class="field-error" data-error-for="ollamaUrl"></p>
-            </div>
-            <div class="field">
-              <label class="field-label" for="cfgSmartRouterUrl">Smart AI Router</label>
-              <input type="url" id="cfgSmartRouterUrl" placeholder="http://localhost:3000" spellcheck="false">
-              <p class="field-error" data-error-for="smartRouterUrl"></p>
-            </div>
+          <div class="field">
+            <label class="field-label" for="cfgOllamaUrl">Ollama</label>
+            <input type="url" id="cfgOllamaUrl" placeholder="http://localhost:11434" spellcheck="false">
+            <p class="field-help">Modelos en tu propio equipo. Solo se usan si eliges uno en el selector; nunca en Automático.</p>
+            <p class="field-error" data-error-for="ollamaUrl"></p>
           </div>
           <div class="field">
             <span class="field-label">Modelo local recomendado</span>
@@ -249,6 +252,7 @@
             <ul>
               <li><strong>Gemini 3.8 Flash:</strong> programación, razonamiento y tareas largas.</li>
               <li><strong>Groq · Qwen 3.8 27B:</strong> respuestas muy rápidas; límites diarios estrictos.</li>
+              <li><strong>Z.ai · GLM Flash:</strong> modelos chinos gratuitos, con visión; más lentos.</li>
               <li><strong>OpenRouter :free:</strong> rota entre modelos gratuitos (Qwen, DeepSeek, GLM…); el catálogo cambia.</li>
               <li><strong>Ollama:</strong> trabajo local y privado si el equipo tiene RAM suficiente.</li>
               <li><strong>Grok y Muse:</strong> modelos de pago con tu propia clave; solo cuando los eliges.</li>

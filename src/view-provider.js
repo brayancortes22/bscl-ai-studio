@@ -2,7 +2,7 @@ const vscode = require('vscode');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { AiClient } = require('./ai-client');
+const { AiClient, NO_PROVIDER_CODE } = require('./ai-client');
 const { AgentSwarm } = require('./agent-swarm');
 const { BrainContext } = require('./brain-context');
 const { HistoryManager } = require('./history-manager');
@@ -73,7 +73,6 @@ class BsclChatViewProvider {
   async reloadConfig() {
     const cfg = await this.configManager.getConfig();
     this.aiClient.updateConfig({
-      smartRouterUrl: cfg.smartRouterUrl,
       ollamaUrl: cfg.ollamaUrl,
       geminiApiKey: cfg.geminiApiKey,
       groqApiKey: cfg.groqApiKey,
@@ -91,7 +90,8 @@ class BsclChatViewProvider {
       openCodePassword: cfg.openCodePassword,
       openCodeFreeEnabled: cfg.openCodeFreeEnabled,
       xaiApiKey: cfg.xaiApiKey,
-      metaApiKey: cfg.metaApiKey
+      metaApiKey: cfg.metaApiKey,
+      zaiApiKey: cfg.zaiApiKey
     });
     return cfg;
   }
@@ -566,6 +566,14 @@ class BsclChatViewProvider {
 
       let response;
       const isImplementation = ['coding_implementation', 'visual_and_ui'].includes(triage.intent) || triage.needsCoderAgent;
+      // Sin ninguna clave, los agentes no tienen proveedor (la Nube pública no recibe código):
+      // se avisa enseguida en vez de recorrer planificador, agentes y revisión para fallar igual.
+      const isAutomatic = ['smart-router', 'auto', 'auto-smart'].includes(model) || model.startsWith('router:');
+      if (isAutomatic && (isSwarmMode || isImplementation) && !this.aiClient.hasAutomaticProvider()) {
+        const error = new Error('No hay ningún proveedor configurado. Añade una clave gratuita (Gemini, Groq, Z.ai u OpenRouter) en Ajustes.');
+        error.code = NO_PROVIDER_CODE;
+        throw error;
+      }
       if (isSwarmMode || isImplementation) {
         response = await runSwarm();
       } else {
@@ -599,7 +607,9 @@ class BsclChatViewProvider {
       this.sendHistoryList();
     } catch (error) {
       if (signal.aborted || error?.name === 'AbortError') this.post({ type: 'requestCancelled', payload: { requestId } });
-      else if (error?.code === NOTHING_TO_SEND_CODE) {
+      else if (error?.code === NO_PROVIDER_CODE || /No hay ningún proveedor configurado/.test(error?.message || '')) {
+        this.post({ type: 'error', payload: { message: error.message, requestId, kind: 'warning', action: 'settings' } });
+      } else if (error?.code === NOTHING_TO_SEND_CODE) {
         // No es un fallo del modelo: todos los adjuntos se descartaron (audio, credenciales).
         const message = Array.isArray(error.warnings) && error.warnings.length ? error.warnings.join(' ') : error.message;
         this.post({ type: 'error', payload: { message, requestId, kind: 'warning' } });

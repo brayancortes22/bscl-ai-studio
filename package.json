@@ -2,7 +2,7 @@
   "name": "bscl-ai-studio",
   "displayName": "BSCL AI Studio",
   "description": "Agente para VS Code con contexto de carpetas, edición reversible, modelos locales, APIs y coordinación de agentes.",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "publisher": "bscl",
   "author": "Brayan Stid Cortés Lombana (bscl)",
   "license": "MIT",
@@ -21,6 +21,8 @@
     "gemini",
     "ollama",
     "openrouter",
+    "glm",
+    "z.ai",
     "español"
   ],
   "icon": "media/icon.png",
@@ -159,12 +161,6 @@
     "configuration": {
       "title": "BSCL AI Studio",
       "properties": {
-        "bsclAi.smartRouterUrl": {
-          "type": "string",
-          "default": "http://localhost:3000",
-          "scope": "application",
-          "description": "URL base del servidor Smart AI Router. Solo se lee de los ajustes de usuario: un repositorio no puede cambiarla."
-        },
         "bsclAi.ollamaUrl": {
           "type": "string",
           "default": "http://localhost:11434",

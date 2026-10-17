@@ -1,19 +1,18 @@
 const vscode = require('vscode');
-const { GEMINI_2026_MODELS, GROQ_FREE_MODELS } = require('./free-cloud-fallback');
+const { GEMINI_2026_MODELS, GROQ_FREE_MODELS, ZAI_BASE_URL, ZAI_FREE_MODELS } = require('./free-cloud-fallback');
 
 // Claves que se guardan en SecretStorage. Las de proveedores ya retirados de la UI
 // (SambaNova, API personalizada, servidor OpenCode, Cerebras) se conservan si existían,
 // pero solo se pueden borrar: no se vuelven a pedir.
 const SECRET_KEYS = [
-  'geminiApiKey', 'groqApiKey', 'openRouterApiKey', 'xaiApiKey', 'metaApiKey',
+  'geminiApiKey', 'groqApiKey', 'zaiApiKey', 'openRouterApiKey', 'xaiApiKey', 'metaApiKey',
   'sambanovaApiKey', 'cerebrasApiKey', 'customApiKey', 'openCodePassword'
 ];
 // Las que el webview puede ver (configurada sí/no y últimos 4 caracteres) y cambiar.
-const EDITABLE_SECRETS = new Set(['geminiApiKey', 'groqApiKey', 'openRouterApiKey', 'xaiApiKey', 'metaApiKey']);
+const EDITABLE_SECRETS = new Set(['geminiApiKey', 'groqApiKey', 'zaiApiKey', 'openRouterApiKey', 'xaiApiKey', 'metaApiKey']);
 const LEGACY_SECRET_LABELS = { cerebrasApiKey: 'Cerebras', sambanovaApiKey: 'SambaNova', customApiKey: 'API personalizada', openCodePassword: 'servidor OpenCode' };
 
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
-const DEFAULT_ROUTER_URL = 'http://localhost:3000';
 
 function isHttpUrl(value) {
   try { return ['http:', 'https:'].includes(new URL(String(value || '').trim()).protocol); } catch { return false; }
@@ -42,9 +41,9 @@ class ConfigManager {
   }
 
   /**
-   * Las URLs locales solo se leen de los ajustes de USUARIO. Por qué: un repositorio
-   * podía fijar bsclAi.smartRouterUrl en su .vscode/settings.json y desviar todas las
-   * conversaciones (con código del workspace) a un servidor ajeno.
+   * Los ajustes bsclAi.* solo se leen de la configuración de USUARIO. Por qué: un repositorio
+   * podía fijar una URL en su .vscode/settings.json y desviar las conversaciones (con código
+   * del workspace) a un servidor ajeno.
    */
   readUserSetting(key, fallback) {
     const inspected = vscode.workspace.getConfiguration('bsclAi').inspect?.(key);
@@ -55,10 +54,8 @@ class ConfigManager {
   async getConfig() {
     await this.migrateCredentials();
     const ollamaUrl = this.readUserSetting('ollamaUrl', DEFAULT_OLLAMA_URL);
-    const smartRouterUrl = this.readUserSetting('smartRouterUrl', DEFAULT_ROUTER_URL);
     const groqFreeEnabled = this.context.globalState.get('bscl_ai_groq_free_enabled', false);
     const config = {
-      smartRouterUrl: isHttpUrl(smartRouterUrl) ? smartRouterUrl : DEFAULT_ROUTER_URL,
       ollamaUrl: isLoopbackUrl(ollamaUrl) ? ollamaUrl : DEFAULT_OLLAMA_URL,
       geminiFreeTierEnabled: this.context.globalState.get('bscl_ai_gemini_free_tier_enabled', true),
       groqFreeEnabled,
@@ -97,8 +94,7 @@ class ConfigManager {
       legacySecrets,
       groqFreeEnabled: Boolean(this.context.globalState.get('bscl_ai_groq_free_enabled', false)),
       freeCloudEnabled: config.freeCloudEnabled,
-      ollamaUrl: config.ollamaUrl,
-      smartRouterUrl: config.smartRouterUrl
+      ollamaUrl: config.ollamaUrl
     };
   }
 
@@ -121,7 +117,7 @@ class ConfigManager {
 
   /**
    * Aplica un parche de ajustes del webview:
-   * { secrets: { clave: 'valor nuevo' }, clearSecrets: ['clave'], groqFreeEnabled, freeCloudEnabled, ollamaUrl, smartRouterUrl }
+   * { secrets: { clave: 'valor nuevo' }, clearSecrets: ['clave'], groqFreeEnabled, freeCloudEnabled, ollamaUrl }
    * Lo que no viene en el parche no se toca. Por qué: antes se reescribía todo con lo
    * que hubiera en el formulario, y guardar antes de que cargara borraba las claves.
    * Valida todo antes de escribir nada; lanza SettingsValidationError con el campo.
@@ -132,9 +128,6 @@ class ConfigManager {
 
     if (patch.ollamaUrl !== undefined && !isLoopbackUrl(patch.ollamaUrl)) {
       throw new SettingsValidationError('ollamaUrl', 'Solo se admite Ollama en este equipo (http://localhost, 127.0.0.1 o [::1]).');
-    }
-    if (patch.smartRouterUrl !== undefined && !isHttpUrl(patch.smartRouterUrl)) {
-      throw new SettingsValidationError('smartRouterUrl', 'Escribe una URL http:// o https:// válida.');
     }
     for (const key of [...Object.keys(secrets), ...clearSecrets]) {
       if (!SECRET_KEYS.includes(key)) throw new SettingsValidationError(null, `Clave de ajustes desconocida: ${key}`);
@@ -161,7 +154,6 @@ class ConfigManager {
     }
 
     const vsConfig = vscode.workspace.getConfiguration('bsclAi');
-    if (patch.smartRouterUrl !== undefined) await vsConfig.update('smartRouterUrl', String(patch.smartRouterUrl).trim(), vscode.ConfigurationTarget.Global);
     if (patch.ollamaUrl !== undefined) await vsConfig.update('ollamaUrl', String(patch.ollamaUrl).trim(), vscode.ConfigurationTarget.Global);
     return this.getWebviewConfig();
   }
@@ -173,9 +165,9 @@ class ConfigManager {
     const results = {
       zeroCostOnly: true,
       ollama: { status: 'offline', label: 'Ollama Local' },
-      smartRouter: { status: 'offline', label: 'Smart AI Router' },
       gemini: { configured: Boolean(cfg.geminiApiKey), status: cfg.geminiApiKey ? 'checking-free-model' : 'not-configured' },
       groq: { configured: Boolean(cfg.groqApiKey), enabled: Boolean(cfg.groqFreeEnabled), status: cfg.groqFreeEnabled ? 'checking-free-model' : cfg.groqApiKey ? 'not-enabled' : 'not-configured' },
+      zai: { configured: Boolean(cfg.zaiApiKey), status: cfg.zaiApiKey ? 'checking-free-model' : 'not-configured' },
       openrouter: { configured: Boolean(cfg.openRouterApiKey), status: cfg.openRouterApiKey ? 'configured' : 'not-configured' },
       grok: { configured: Boolean(cfg.xaiApiKey), status: cfg.xaiApiKey ? 'checking-model' : 'not-configured' },
       meta: { configured: Boolean(cfg.metaApiKey), status: cfg.metaApiKey ? 'checking-model' : 'not-configured' },
@@ -185,13 +177,7 @@ class ConfigManager {
 
     const timed = (ms) => AbortSignal.timeout(ms);
     const checks = [
-      fetch(`${cfg.ollamaUrl}/api/tags`, { signal: timed(2000) }).then((res) => { if (res.ok) results.ollama.status = 'online'; }),
-      fetch(`${cfg.smartRouterUrl}/health`, { signal: timed(2000) }).then(async (res) => {
-        if (!res.ok) return;
-        const data = await res.json().catch(() => ({}));
-        results.smartRouter.status = 'online';
-        results.smartRouter.providers = data.providers || {};
-      })
+      fetch(`${cfg.ollamaUrl}/api/tags`, { signal: timed(2000) }).then((res) => { if (res.ok) results.ollama.status = 'online'; })
     ];
     const listModels = (url, key, target, onData) => checks.push(fetch(url, { headers: { Authorization: `Bearer ${key}` }, signal: timed(5000) })
       .then(async (res) => {
@@ -214,6 +200,17 @@ class ConfigManager {
       listModels('https://api.groq.com/openai/v1/models', cfg.groqApiKey, 'groq', (data) => {
         results.groq.status = (data.data || []).some((m) => groqTargetIds.has(m.id)) ? 'online' : 'model-unavailable';
       });
+    }
+    if (cfg.zaiApiKey) {
+      // Z.ai no publica un endpoint para listar modelos: se comprueba la clave y el id con una
+      // petición de 1 token a un modelo de precio $0, así que no genera coste.
+      checks.push(fetch(`${ZAI_BASE_URL}/chat/completions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${cfg.zaiApiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: ZAI_FREE_MODELS[ZAI_FREE_MODELS.length - 1].id, messages: [{ role: 'user', content: 'ok' }], max_tokens: 1 }),
+        signal: timed(20000)
+      }).then((res) => { results.zai.status = res.ok ? 'online' : `error-${res.status}`; })
+        .catch(() => { results.zai.status = 'offline'; }));
     }
     await Promise.allSettled(checks);
     return results;

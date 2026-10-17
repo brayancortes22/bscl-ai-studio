@@ -33,7 +33,7 @@ como no confiable: la extensión comprueba tipos y rutas.
 | `activeContext` | `{ activeEditor: { fileName, relativePath, language, lineCount, hasSelection } \| null, selectedFolder, selectedFolderPath }`. Sin contenido de archivos; se agrupa cada 150 ms y solo con el panel visible |
 | `historyList` | `{ sessions: [{ id, title, model, skillKey, messageCount, createdAt, updatedAt, hasWorkspaceScope }] }`: resúmenes sin mensajes |
 | `sessionLoaded` | `{ session }` |
-| `apiConfig` | `{ secrets: { <clave>: { configured, hint? } }, legacySecrets: [{ key, label }], groqFreeEnabled, freeCloudEnabled, ollamaUrl, smartRouterUrl }`. Nunca la clave; `hint` son sus 4 últimos caracteres |
+| `apiConfig` | `{ secrets: { <clave>: { configured, hint? } }, legacySecrets: [{ key, label }], groqFreeEnabled, freeCloudEnabled, ollamaUrl }`. Nunca la clave; `hint` son sus 4 últimos caracteres |
 | `apiConfigSaved` | `{ success, message?, field? }` |
 | `testProvidersResult` | Estado por proveedor: `online`, `error-<código>`, `offline`, `model-unavailable`, `not-configured`, `not-enabled`, `disabled` o `checking-*` |
 | `taskPlan` | `{ title, goal, intent, steps[], agents[], subtasks[] }` |
@@ -66,21 +66,19 @@ Eliminados en la 1.2.0:
   "clearSecrets": ["xaiApiKey"],
   "groqFreeEnabled": false,
   "freeCloudEnabled": true,
-  "ollamaUrl": "http://localhost:11434",
-  "smartRouterUrl": "http://localhost:3000"
+  "ollamaUrl": "http://localhost:11434"
 }
 ```
 
 Lo que no viene en el parche no se toca. Todo se valida antes de escribir nada:
 
 - Ollama solo en este equipo: `localhost`, `127.0.0.1` o `[::1]`.
-- El Smart Router acepta cualquier URL `http(s)`.
 - Las claves no pueden tener espacios.
 
 Groq entra en Automático solo con la casilla marcada **y** con clave.
 
-Claves editables: `geminiApiKey`, `groqApiKey`, `openRouterApiKey`, `xaiApiKey` y
-`metaApiKey`. Las de proveedores retirados (`cerebrasApiKey`, `sambanovaApiKey`,
+Claves editables: `geminiApiKey`, `groqApiKey`, `zaiApiKey`, `openRouterApiKey`, `xaiApiKey`
+y `metaApiKey`. Las de proveedores retirados (`cerebrasApiKey`, `sambanovaApiKey`,
 `customApiKey`, `openCodePassword`) solo se pueden borrar.
 
 ## Límites de adjuntos
@@ -92,15 +90,12 @@ Claves editables: `geminiApiKey`, `groqApiKey`, `openRouterApiKey`, `xaiApiKey` 
 | Audio | No se admite: se descarta con un aviso |
 | Nombres sensibles (`.env`, `id_rsa`, `*.pem`, `credentials.json`…) | Se rechazan |
 
-## Smart AI Router
+## Smart AI Router (retirado)
 
-Servidor local aparte. Por defecto está en `http://localhost:3000`.
-
-| Endpoint | Uso desde la extensión |
-|---|---|
-| `GET /health` | **Probar conexiones** en Ajustes |
-| `GET /api/models` | Lista de modelos del router en el selector |
-| `POST /v1/chat/completions` | Paso 4 de Automático (`model: "auto"`) y modelos `router:` elegidos a mano |
+Hasta la 1.2.0, Automático pasaba por un servidor local propio en `http://localhost:3000`. Se
+retiró en la 1.3.0 (ADR-027): los demás usuarios no lo tienen, y en ese puerto suele haber otra
+aplicación, que recibía las conversaciones. Los ids `router:` de conversaciones guardadas pasan
+a Automático.
 
 ## Proveedores directos
 
@@ -111,6 +106,7 @@ Ollama.
 |---|---|
 | Gemini (Automático o elegido a mano) | `https://generativelanguage.googleapis.com/v1beta/openai` |
 | `groq:` | `https://api.groq.com/openai/v1` |
+| `zai:` (solo GLM-4.7-Flash, GLM-4.5-Flash y GLM-4.6V-Flash, de precio $0) | `https://api.z.ai/api/paas/v4` |
 | `openrouter:` (solo IDs `:free`) | `https://openrouter.ai/api/v1` |
 | `opencode:` (solo modelos gratuitos de OpenCode Zen) | `https://opencode.ai/zen/v1` |
 | `cerebras:` (clave heredada, crédito de prueba) | `https://api.cerebras.ai/v1` |

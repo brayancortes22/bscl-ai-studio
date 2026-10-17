@@ -61,24 +61,29 @@ cinco entregas.
 |---|---|---|---|
 | Gemini (Google AI Studio) | sí | Free tier | Automático y a mano |
 | Groq | sí | Free tier | Automático solo con la casilla marcada; también a mano |
-| OpenRouter `:free` | sí | gratis | Automático y a mano |
-| Smart AI Router (local) | no | — | Automático y a mano |
-| Ollama | no | local | Solo a mano |
+| Z.ai (GLM-4.7-Flash, GLM-4.5-Flash, GLM-4.6V-Flash) | sí | gratis | Automático y a mano |
+| OpenRouter `:free` (Qwen, DeepSeek, GLM, Kimi…) | sí | gratis | Automático y a mano |
 | Nube pública (Pollinations) | no | gratis | Último recurso de Automático, solo en chat sin contexto |
+| Ollama | no | local | Solo a mano |
 | xAI Grok, Meta Muse | sí | **de pago** | Solo si eliges uno de sus modelos |
+
+Necesitas **al menos una clave gratuita**. Sin ninguna, las tareas de los agentes muestran un
+aviso con un botón para abrir Ajustes.
 
 **Orden de Automático:**
 
 1. Gemini, que prueba hasta 8 modelos.
 2. Groq, si está activado.
-3. OpenRouter `:free`: hasta 3 modelos verificados con precio $0, y después `openrouter/free`.
-4. Smart AI Router.
+3. Z.ai: GLM-4.7-Flash y después GLM-4.5-Flash. Son gratuitos pero más lentos.
+4. OpenRouter `:free`: hasta 3 modelos verificados con precio $0, y después `openrouter/free`.
 5. Nube pública.
 
 Planificador y subagentes prueban Groq antes que Gemini. Con imágenes el orden es Gemini y
-después Smart AI Router.
+después Z.ai (GLM-4.6V-Flash).
 
-Automático nunca usa proveedores de pago, ni Cerebras, ni Ollama. Cada petición tiene un plazo
+De Z.ai solo se usan los modelos con precio $0. Los «FlashX» y GLM-5.3 cobran y nunca se envían.
+
+Automático nunca usa proveedores de pago, ni Cerebras, ni Ollama, ni ningún servidor local. Cada petición tiene un plazo
 total de 170 s. Si un proveedor rechaza la clave o no responde, se pausa un tiempo y se pasa al
 siguiente.
 
@@ -106,7 +111,6 @@ tu facturación.
 
 | Ajuste | Por defecto | Para qué |
 |---|---|---|
-| `bsclAi.smartRouterUrl` | `http://localhost:3000` | URL del Smart AI Router |
 | `bsclAi.ollamaUrl` | `http://localhost:11434` | Ollama en este equipo (solo localhost) |
 | `bsclAi.defaultModel` | `smart-router` | Modelo al abrir el panel; no admite modelos de pago |
 | `bsclAi.obsidianVaultPath` | vacío | Bóveda de Obsidian con notas de referencia |
@@ -121,7 +125,7 @@ Las claves de API se gestionan desde **Ajustes** en el panel, no desde `settings
 ## Desarrollo
 
 ```powershell
-npm test          # 263 tests con node:test, sin dependencias
+npm test          # 273 tests con node:test, sin dependencias
 npm run preview   # vista previa del panel en el navegador, sin VS Code
 ```
 

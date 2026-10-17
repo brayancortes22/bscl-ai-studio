@@ -16,7 +16,6 @@ window.SettingsView = (function () {
   const groqToggle = document.getElementById('cfgGroqFreeEnabled');
   const freeCloudToggle = document.getElementById('cfgFreeCloudEnabled');
   const ollamaUrl = document.getElementById('cfgOllamaUrl');
-  const routerUrl = document.getElementById('cfgSmartRouterUrl');
   const testButton = document.getElementById('btnTestProviders');
   const testResults = document.getElementById('testResults');
   const recommendButton = document.getElementById('btnRecommendLocalModel');
@@ -54,9 +53,6 @@ window.SettingsView = (function () {
     } catch { return false; }
   }
 
-  function isHttpUrl(value) {
-    try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; }
-  }
 
   function syncSecret(entry) {
     entry.badge.hidden = !entry.configured || entry.pendingClear;
@@ -91,9 +87,7 @@ window.SettingsView = (function () {
     groqToggle.checked = Boolean(config.groqFreeEnabled);
     freeCloudToggle.checked = config.freeCloudEnabled !== false;
     ollamaUrl.value = config.ollamaUrl || 'http://localhost:11434';
-    routerUrl.value = config.smartRouterUrl || 'http://localhost:3000';
     setError('ollamaUrl', '');
-    setError('smartRouterUrl', '');
     saveState.textContent = '';
   }
 
@@ -106,14 +100,12 @@ window.SettingsView = (function () {
     });
     if (legacyClear.checked) patch.clearSecrets.push(...legacyKeys.map((item) => item.key));
     patch.ollamaUrl = ollamaUrl.value.trim() || 'http://localhost:11434';
-    patch.smartRouterUrl = routerUrl.value.trim() || 'http://localhost:3000';
     return patch;
   }
 
   function validate(patch) {
     let ok = true;
     if (!isLoopback(patch.ollamaUrl)) { setError('ollamaUrl', 'Solo se admite Ollama en este equipo (http://localhost o 127.0.0.1).'); ok = false; } else setError('ollamaUrl', '');
-    if (!isHttpUrl(patch.smartRouterUrl)) { setError('smartRouterUrl', 'Escribe una URL http:// o https:// válida.'); ok = false; } else setError('smartRouterUrl', '');
     return ok;
   }
 
@@ -143,7 +135,7 @@ window.SettingsView = (function () {
 
   const PROVIDERS = [
     ['gemini', 'Gemini'], ['groq', 'Groq'], ['openrouter', 'OpenRouter :free'], ['ollama', 'Ollama'],
-    ['smartRouter', 'Smart AI Router'], ['grok', 'xAI Grok'], ['meta', 'Meta Muse'], ['freeCloud', 'Nube pública sin clave']
+    ['zai', 'Z.ai'], ['grok', 'xAI Grok'], ['meta', 'Meta Muse'], ['freeCloud', 'Nube pública sin clave']
   ];
 
   function describeStatus(result = {}) {

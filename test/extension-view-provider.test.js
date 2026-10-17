@@ -154,6 +154,7 @@ test('FS-2: las huellas leídas para el contexto llegan a applyChanges', async (
     const { provider, view, sent } = setup();
     provider.resolveWebviewView(view);
     await provider.handleMessage({ type: 'ready' });
+    provider.aiClient.hasAutomaticProvider = () => true;
     provider.swarm.runSwarm = async () => ({ intent: 'coding_implementation', content: 'Hecho.', provider: 'test', workspaceFiles: [{ path: 'a.js', content: 'nuevo' }] });
     await provider.handleMessage({ type: 'sendMessage', payload: {
       sessionId: 's', requestId: 'r1', isSwarmMode: true, autoContext: false,
@@ -208,4 +209,21 @@ test('borrar o renombrar pide confirmación; cancelar no aplica nada', async () 
     WorkspaceChangeManager.applyChanges = originals.apply;
     WorkspaceChangeManager.assessRisk = originals.risk;
   }
+});
+
+test('sin ninguna clave, una tarea de agentes en Automático avisa y ofrece abrir Ajustes', async () => {
+  const { provider, view, sent } = setup();
+  provider.resolveWebviewView(view);
+  await provider.handleMessage({ type: 'ready' });
+  let swarmCalled = false;
+  provider.swarm.runSwarm = async () => { swarmCalled = true; return { content: 'x' }; };
+  await provider.handleMessage({ type: 'sendMessage', payload: {
+    sessionId: 's', requestId: 'r-np', model: 'smart-router', isSwarmMode: true, autoContext: false,
+    messages: [{ role: 'user', content: 'Implementa la función suma en a.js' }]
+  } });
+  assert.equal(swarmCalled, false, 'no debe recorrer el enjambre para fallar igual');
+  const [error] = ofType(sent, 'error');
+  assert.equal(error.payload.action, 'settings');
+  assert.equal(error.payload.kind, 'warning');
+  assert.match(error.payload.message, /Z\.ai/);
 });

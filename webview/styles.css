@@ -262,6 +262,7 @@ kbd {
   font-size: 12.5px; overflow-wrap: anywhere;
 }
 .callout .icon { margin-top: 2px; color: var(--error); }
+.callout-text { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
 .callout.warning { border-left-color: var(--vscode-inputValidation-warningBorder, var(--warning)); background: var(--vscode-inputValidation-warningBackground, transparent); }
 .callout.warning .icon { color: var(--warning); }
 .callout.info { border-left-color: var(--vscode-inputValidation-infoBorder, var(--focus)); background: var(--vscode-inputValidation-infoBackground, transparent); }

@@ -24,6 +24,7 @@
     { id: 'smart-router', name: 'Automático · cascada gratuita' },
     { id: 'gemini:gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
     { id: 'groq:qwen/qwen3.8-27b', name: 'Groq · Qwen 3.8 27B' },
+    { id: 'zai:glm-4.7-flash', name: 'Z.ai · GLM-4.7-Flash (gratis)' },
     { id: 'openrouter:openrouter/free', name: 'OpenRouter · modelo gratuito' },
     { id: 'ollama:qwen2.5-coder:7b', name: 'Ollama · qwen2.5-coder:7b' }
   ];
@@ -61,10 +62,10 @@
   };
   const apiConfig = {
     secrets: {
-      geminiApiKey: { configured: true, hint: 'x9Qa' }, groqApiKey: { configured: false }, openRouterApiKey: { configured: true, hint: '41f0' },
+      geminiApiKey: { configured: true, hint: 'x9Qa' }, groqApiKey: { configured: false }, zaiApiKey: { configured: true, hint: '7c2e' }, openRouterApiKey: { configured: true, hint: '41f0' },
       xaiApiKey: { configured: false }, metaApiKey: { configured: false }
     },
-    groqFreeEnabled: false, smartRouterUrl: 'http://localhost:3000', ollamaUrl: 'http://localhost:11434'
+    groqFreeEnabled: false, freeCloudEnabled: true, ollamaUrl: 'http://localhost:11434'
   };
   const plan = {
     title: 'Añadir validación al formulario de ajustes', goal: 'Validar las URLs locales antes de guardarlas y avisar del error en línea.',
@@ -145,7 +146,7 @@
       case 'ready': later(0, onReady); break;
       case 'testProviders':
         later(300, () => toWebview('testProvidersResult', {
-          smartRouter: { status: 'offline' }, ollama: { status: 'online' }, gemini: { status: 'online', configured: true },
+          zai: { status: 'online', configured: true }, ollama: { status: 'online' }, gemini: { status: 'online', configured: true },
           groq: { status: 'offline', enabled: false }, openrouter: { status: 'offline', configured: false },
           grok: { configured: false }, meta: { configured: false }, freeCloud: { status: 'offline' }
         }));

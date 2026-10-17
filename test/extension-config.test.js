@@ -57,7 +57,6 @@ test('rechaza Ollama remoto y URLs inválidas sin escribir nada', async () => {
     (error) => error instanceof SettingsValidationError && error.field === 'ollamaUrl'
   );
   assert.equal(await context.secrets.get(`${PREFIX}geminiApiKey`), 'keep', 'una validación fallida no debe guardar a medias');
-  await assert.rejects(manager.applySettingsPatch({ smartRouterUrl: 'ftp://x' }), (error) => error.field === 'smartRouterUrl');
   await assert.rejects(manager.applySettingsPatch({ secrets: { inventada: 'x' } }), SettingsValidationError);
 });
 
@@ -69,13 +68,23 @@ test('las URLs locales se leen solo de los ajustes de usuario', async () => {
   assert.equal(config.ollamaUrl, 'http://localhost:11434', 'un Ollama remoto se ignora');
 });
 
-test('un .vscode/settings.json del repositorio no puede cambiar la URL del Smart Router', async () => {
+test('un .vscode/settings.json del repositorio no puede cambiar la URL de Ollama', async () => {
   const { manager } = await managerWith();
-  state.workspaceConfiguration.smartRouterUrl = 'https://exfiltra.example.com';
-  state.configuration.smartRouterUrl = 'http://localhost:3001';
-  assert.equal((await manager.getConfig()).smartRouterUrl, 'http://localhost:3001');
-  delete state.configuration.smartRouterUrl;
-  assert.equal((await manager.getConfig()).smartRouterUrl, 'http://localhost:3000', 'sin valor de usuario se usa el predeterminado, no el del repo');
+  state.workspaceConfiguration.ollamaUrl = 'http://127.0.0.1:9999';
+  state.configuration.ollamaUrl = 'http://localhost:11500';
+  assert.equal((await manager.getConfig()).ollamaUrl, 'http://localhost:11500');
+  delete state.configuration.ollamaUrl;
+  assert.equal((await manager.getConfig()).ollamaUrl, 'http://localhost:11434', 'sin valor de usuario se usa el predeterminado, no el del repo');
+});
+
+test('el Smart AI Router ya no existe en los ajustes ni en la vista del webview', async () => {
+  const { manager } = await managerWith({ zaiApiKey: 'zai-clave-1234' });
+  const view = await manager.getWebviewConfig();
+  assert.ok(!('smartRouterUrl' in view));
+  assert.ok(!('smartRouterUrl' in (await manager.getConfig())));
+  assert.deepEqual(view.secrets.zaiApiKey, { configured: true, hint: '1234' }, 'la clave de Z.ai se gestiona como las demás');
+  const pkg = require('../package.json');
+  assert.ok(!('bsclAi.smartRouterUrl' in pkg.contributes.configuration.properties));
 });
 
 test('las claves heredadas se listan sin valor y se pueden borrar', async () => {

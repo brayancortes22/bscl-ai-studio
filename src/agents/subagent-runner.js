@@ -7,7 +7,7 @@ const RETRY_DELAY_MS = 800;
 
 function isExplicitLocalModel(model = '') {
   if (!model) return false;
-  if (/^(?:smart-router|auto|auto-smart|google\/|gemini:|groq:|grok:|xai:|meta:|cerebras:|openrouter:|opencode:|router:|free-cloud:)/i.test(model)) {
+  if (/^(?:smart-router|auto|auto-smart|google\/|gemini:|groq:|zai:|grok:|xai:|meta:|cerebras:|openrouter:|opencode:|router:|free-cloud:)/i.test(model)) {
     return false;
   }
   return model.startsWith('ollama') || model.includes(':');

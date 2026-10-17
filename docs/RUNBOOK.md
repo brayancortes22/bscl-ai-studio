@@ -5,7 +5,8 @@
 - VS Code 1.90 o superior.
 - Node.js para empaquetar y pasar los tests (`npm test` usa patrones glob de `node --test`:
   Node 22 o superior).
-- Opcionales: Smart AI Router en `http://localhost:3000` y Ollama en `http://localhost:11434`.
+- Al menos una clave gratuita (Gemini, Groq, Z.ai u OpenRouter).
+- Opcional: Ollama en `http://localhost:11434` para modelos locales elegidos a mano.
 
 ## Probar, previsualizar y empaquetar
 
@@ -39,8 +40,11 @@ En el panel, **Ajustes** (icono de la barra del panel):
 1. Pega la clave de Gemini (Google AI Studio). Es la primera opción de Automático.
 2. Para usar Groq en Automático, pega su clave **y** marca la casilla. Hazlo solo si la cuenta
    sigue en el plan Free y sin método de pago: la extensión no puede comprobarlo.
-3. OpenRouter solo usa modelos `:free`. No añadas saldo si quieres mantener el coste en cero.
-4. **Probar conexiones** consulta solo los listados de modelos: no genera coste de inferencia.
+3. Z.ai: crea una clave en z.ai y pégala. Solo se usan GLM-4.7-Flash, GLM-4.5-Flash y
+   GLM-4.6V-Flash, que tienen precio $0. Responden más despacio que Gemini o Groq.
+4. OpenRouter solo usa modelos `:free`. No añadas saldo si quieres mantener el coste en cero.
+5. **Probar conexiones** consulta los listados de modelos y, para Z.ai (que no publica uno),
+   hace una petición de 1 token a un modelo gratuito: no genera coste.
 
 xAI Grok y Meta Muse cobran por uso y solo se usan si eliges uno de sus modelos.
 
@@ -55,9 +59,10 @@ se usa eligiéndolo en el selector.
 
 | Mensaje o síntoma | Causa y qué hacer |
 |---|---|
-| «No se pudo generar respuesta con las IAs en la nube…» | Todos los pasos de Automático fallaron. El mensaje lista cada fallo. Revisa las claves en Ajustes → **Probar conexiones**, o espera si es cuota agotada |
+| «No hay ningún proveedor configurado…» | No hay ninguna clave. Pulsa **Abrir ajustes** en el aviso y añade una gratuita |
+| «No se pudo generar respuesta en modo Automático…» | Todos los pasos de Automático fallaron. El mensaje lista cada fallo. Revisa las claves en Ajustes → **Probar conexiones**, o espera si es cuota agotada |
 | «… omitido (clave o permisos; reintento en N s)» | La clave fue rechazada (401/403). Corrígela en Ajustes |
-| «Se agotó el plazo total de 170 s…» | Ningún proveedor respondió a tiempo. Reintenta; si se repite, comprueba la red o el Smart Router |
+| «Se agotó el plazo total de 170 s…» | Ningún proveedor respondió a tiempo. Reintenta; si se repite, comprueba la red |
 | «No se pudo conectar con Ollama local…» | Ollama no está en marcha o la URL no es la correcta (Ajustes → Local) |
 | «<archivo> cambió durante la generación; vuelve a enviar la tarea.» | Guardaste ese archivo mientras el modelo trabajaba. No se pisa: repite la petición |
 | VS Code pide confirmar borrados o renombrados | El Programador quiere borrar, renombrar o reducir un archivo a menos de la mitad. *Solo crear y editar* aplica el resto |

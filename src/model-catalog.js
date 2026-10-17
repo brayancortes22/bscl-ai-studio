@@ -2,7 +2,7 @@
  * Descubrimiento y clasificación de modelos gratuitos para BSCL AI Studio.
  * Autor: Brayan Stid Cortés Lombana (bscl)
  */
-const { GEMINI_2026_MODELS, GROQ_FREE_MODELS, CEREBRAS_FREE_MODELS } = require('./free-cloud-fallback');
+const { GEMINI_2026_MODELS, GROQ_FREE_MODELS, CEREBRAS_FREE_MODELS, ZAI_FREE_MODELS, ZAI_FREE_VISION_MODEL } = require('./free-cloud-fallback');
 const { timeoutSignal } = require('./provider-cooldown');
 
 const ZERO_COST_OPENROUTER_EXCLUDE = /embed|rerank|moderation|transcri/i;
@@ -26,10 +26,9 @@ const XAI_FALLBACK_MODELS = [
 // Proveedores que facturan o gastan crédito: Cerebras arranca con crédito de prueba (ADR-017) y su
 // clave no se puede ver ni borrar en ⚙️ APIs. Solo se usan si el usuario elige uno de sus modelos.
 const PAID_PROVIDERS = new Set(['xai', 'meta', 'cerebras']);
-const PAID_ID = /^(?:grok:|xai:|meta:|cerebras:|router:cerebras\/)/i;
+const PAID_ID = /^(?:grok:|xai:|meta:|cerebras:)/i;
 // La consulta del catálogo de OpenRouter tiene un timeout de 8 s y Automático la repetía en cada petición.
 const OPENROUTER_CATALOG_TTL_MS = 5 * 60 * 1000;
-const SAFE_ROUTER_ID = /^router:(?:openrouter\/(?:openrouter\/free|[^\s]+:free)|gemini\/|groq\/|cerebras\/|free-cloud\/)/i;
 const PREFERRED_FREE_FAMILIES = [
   /qwen/i, /deepseek/i, /llama-3\.3-70b|gpt-oss-120b|nemotron/i,
   /minimax|moonshot|kimi|codestral|mistral/i, /z-ai|\bglm\b|gemma-3-27b/i,
@@ -43,10 +42,6 @@ function freeModelFamilyRank(model) {
 }
 
 class ModelCatalog {
-  static isSafeRouterId(id = '') {
-    return SAFE_ROUTER_ID.test(id);
-  }
-
   /** Grupo del selector: 'auto' | 'free' | 'local' | 'paid'. */
   static groupFor(model = {}) {
     const id = String(model.id || '');
@@ -109,6 +104,16 @@ class ModelCatalog {
       id: `groq:${m.id}`,
       name: `⚡ Groq · ${m.label}`,
       provider: 'groq'
+    }));
+  }
+
+  /** Solo los modelos con precio $0 de Z.ai (ver ZAI_FREE_MODELS). */
+  static getZaiModels(zaiApiKey) {
+    if (!zaiApiKey) return [];
+    return [...ZAI_FREE_MODELS, ZAI_FREE_VISION_MODEL].map((m) => ({
+      id: `zai:${m.id}`,
+      name: `Z.ai · ${m.label} (gratis)`,
+      provider: 'zai'
     }));
   }
 

@@ -1,5 +1,5 @@
 /**
- * Ejecutor de cascada multi-modelo para Gemini, Groq, Cerebras y OpenRouter en BSCL AI Studio.
+ * Ejecutor de cascada multi-modelo para Gemini, Groq, Z.ai, Cerebras y OpenRouter en BSCL AI Studio.
  * Inspirado en gemini-provider.js y ai-service.js de Figma AI Copilot.
  * Autor: Brayan Stid Cortés Lombana (bscl)
  *
@@ -11,7 +11,11 @@ const {
   GEMINI_2026_MODELS,
   CEREBRAS_FREE_MODELS,
   geminiModelsForRole,
-  groqModelsForRole
+  groqModelsForRole,
+  ZAI_BASE_URL,
+  ZAI_FREE_MODELS,
+  ZAI_FREE_VISION_MODEL,
+  ZAI_FREE_IDS
 } = require('./free-cloud-fallback');
 const { compactMessages, summarizeProviderError } = require('./message-compactor');
 const { cancellationError, throwIfCancelled } = require('./provider-cooldown');
@@ -237,6 +241,46 @@ class ProviderCascade {
         signal
       })
     });
+  }
+
+  /**
+   * Z.ai (GLM) con sus modelos de precio $0: GLM-4.7-Flash, GLM-4.5-Flash y, con imágenes,
+   * GLM-4.6V-Flash. Nunca se envía un id que no esté en ZAI_FREE_IDS: los FlashX cobran.
+   * 60 s por modelo porque los Flash gratuitos son lentos (una medición pública dio 26 s).
+   */
+  static async tryZaiCascade(client, messages, roleHint = '', preferredModel = '', hasImages = false, { signal } = {}) {
+    if (!client.zaiApiKey) return { result: null, failure: '' };
+    if (preferredModel && !ZAI_FREE_IDS.has(preferredModel)) {
+      return { result: null, failure: `Z.ai: «${preferredModel}» no es un modelo gratuito` };
+    }
+    const skipped = providerSkipReason(client, 'zai', 'Z.ai', { explicit: Boolean(preferredModel) });
+    if (skipped) return { result: null, failure: skipped };
+
+    const release = client.providerCooldown.tryAcquire('zai', 2);
+    if (!release) return { result: null, failure: 'Z.ai ocupado con tareas concurrentes' };
+    try {
+      const textIds = ZAI_FREE_MODELS.map((m) => m.id);
+      const base = hasImages ? [ZAI_FREE_VISION_MODEL.id] : textIds;
+      const candidates = preferredModel ? [preferredModel, ...base.filter((m) => m !== preferredModel)] : base;
+      return await runCandidates(client, {
+        provider: 'zai', label: 'Z.ai', candidates, preferredModel, signal,
+        revision: () => client.zaiCredentialRevision,
+        mapResult: (result, modelId) => ({ ...result, model: `zai:${modelId}` }),
+        send: (modelId) => client.sendCompatibleRequest({
+          model: modelId,
+          messages,
+          baseUrl: ZAI_BASE_URL,
+          apiKey: client.zaiApiKey,
+          providerName: `Z.ai · ${modelId}`,
+          // Sin max_completion_tokens: la API de Z.ai documenta max_tokens y no se ha
+          // comprobado cómo trata el parámetro de OpenAI.
+          timeoutMs: 60000,
+          signal
+        })
+      });
+    } finally {
+      release();
+    }
   }
 }
 

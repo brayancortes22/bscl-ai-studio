@@ -37,7 +37,7 @@ respetan, y si se cancela no se escribe ningún archivo.
 | `config-manager.js` | Ajustes y claves (SecretStorage); vista enmascarada y guardado por parche |
 | `history-manager.js` | Historial en `globalState`, con límites de tamaño |
 | `ai-client.js` | Envío a proveedores, cascada Automática, visión, plazo global y cancelación |
-| `provider-cascade.js` | Cascadas de Gemini, Groq, OpenRouter y Cerebras con su orden de modelos |
+| `provider-cascade.js` | Cascadas de Gemini, Groq, Z.ai, OpenRouter y Cerebras con su orden de modelos |
 | `provider-cooldown.js` | Enfriamientos por modelo y proveedor, cupos de concurrencia, errores de cancelación |
 | `model-catalog.js`, `free-cloud-fallback.js` | Catálogos de modelos, grupos de coste y Nube pública |
 | `message-compactor.js` | Recorte de contexto y lectura de cabeceras de cuota |
@@ -76,21 +76,27 @@ responde:
 
 1. **Gemini** (8 modelos, ordenados por rol; hasta 3 llamadas simultáneas).
 2. **Groq**, solo con la casilla marcada y clave; nunca con imágenes; hasta 2 llamadas.
-3. **OpenRouter `:free`**: hasta 3 modelos verificados con precio $0 y después
+3. **Z.ai**: GLM-4.7-Flash y GLM-4.5-Flash (precio $0); con imágenes, GLM-4.6V-Flash. Hasta
+   2 llamadas a la vez.
+4. **OpenRouter `:free`**: hasta 3 modelos verificados con precio $0 y después
    `openrouter/free`. Sin imágenes.
-4. **Smart AI Router** local (`POST /v1/chat/completions`, modelo `auto`).
 5. **Nube pública** (Pollinations). Solo si está activada, sin imágenes, en chat directo y sin
    ningún marcador de contexto del proyecto. Recibe solo el último turno.
 
 El planificador y los subagentes prueban Groq antes que Gemini. Automático nunca usa xAI,
-Meta, Cerebras, OpenCode ni Ollama: esos modelos solo se usan si se eligen a mano.
+Meta, Cerebras, OpenCode ni Ollama: esos modelos solo se usan si se eligen a mano. Tampoco
+hay ningún servidor local: el Smart AI Router se retiró en la 1.3.0 (ADR-027).
+
+Si no hay ninguna clave configurada, `sendAutomatic` lanza un error con código
+`BSCL_NO_PROVIDER`, y el panel muestra un botón para abrir Ajustes. Para las tareas de agentes,
+`view-provider` lo comprueba antes de empezar.
 
 | Plazo por petición | Valor |
 |---|---|
 | Total por llamada a `sendMessage` | 170 s |
 | Gemini, Groq | 45 s por modelo |
 | OpenRouter, Nube pública | 35 s por modelo |
-| Smart AI Router | 90 s |
+| Z.ai | 60 s por modelo |
 | Ollama | 60 s |
 
 Enfriamientos (`provider-cooldown.js`):
@@ -111,7 +117,7 @@ Enfriamientos (`provider-cooldown.js`):
 Una cancelación del usuario nunca registra un enfriamiento.
 
 **Visión.** Si eliges un modelo gratuito sin visión y adjuntas imágenes, primero se describen
-con Gemini, después con modelos de visión `:free` de OpenRouter y por último con Ollama local.
+con Gemini, después con GLM-4.6V-Flash de Z.ai, luego con modelos de visión `:free` de OpenRouter y por último con Ollama local.
 Se envían solo las imágenes y una instrucción fija, sin historial. Nunca se usan xAI ni Meta.
 
 ## Agentes

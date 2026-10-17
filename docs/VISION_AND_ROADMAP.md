@@ -1,6 +1,6 @@
 # Estado y hoja de ruta de BSCL AI Studio
 
-## Qué hay hoy (1.2.0)
+## Qué hay hoy (1.3.0)
 
 **Panel.**
 
@@ -25,12 +25,13 @@
 
 **Coste.**
 
-- Automático solo usa proveedores gratuitos: Gemini, Groq con casilla, OpenRouter `:free`,
-  Smart AI Router y Nube pública sin contexto.
+- Automático solo usa proveedores gratuitos en la nube: Gemini, Groq con casilla, Z.ai
+  (GLM Flash), OpenRouter `:free` y Nube pública sin contexto. No depende de ningún servidor
+  local.
 - Los de pago (xAI, Meta) solo se usan si se eligen.
 - Plazo total de 170 s por llamada y enfriamientos por modelo y por proveedor.
 
-**Calidad.** 263 tests con `node:test` y vista previa del panel sin VS Code.
+**Calidad.** 273 tests con `node:test` y vista previa del panel sin VS Code.
 
 ## Límites conocidos
 

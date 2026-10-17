@@ -26,7 +26,7 @@ const {
 } = require('./provider-cooldown');
 const { ModelCatalog } = require('./model-catalog');
 const { ProviderCascade, GEMINI_2026_MODELS } = require('./provider-cascade');
-const { callFreeCloudDirect, publicCloudBlockReason, stripSystemContext, lastTurnOnly } = require('./free-cloud-fallback');
+const { callFreeCloudDirect, publicCloudBlockReason, stripSystemContext, lastTurnOnly, ZAI_BASE_URL, ZAI_FREE_VISION_MODEL } = require('./free-cloud-fallback');
 const {
   isLoopbackUrl,
   summarizeProviderError,
@@ -41,6 +41,8 @@ const {
 // antes era la suma de todos los timeouts de la cascada, varios minutos sin poder cancelar.
 // El enfriamiento por timeout de provider-cooldown.js (3 min) debe seguir siendo mayor.
 const SEND_DEADLINE_MS = 170 * 1000;
+// Código del error de Automático cuando no hay ningún proveedor con clave: la interfaz ofrece abrir Ajustes.
+const NO_PROVIDER_CODE = 'BSCL_NO_PROVIDER';
 const GROUP_ORDER = ['auto', 'free', 'local', 'paid'];
 const VISION_PROMPT = 'Describe con detalle en español la(s) imagen(es) adjunta(s). Transcribe literalmente cualquier texto, código o mensaje de error visible y enumera los elementos de interfaz relevantes. Limítate a describir; no respondas a otras preguntas.';
 
@@ -80,7 +82,6 @@ function toOllamaMessages(messages = []) {
 
 class AiClient {
   constructor(options = {}) {
-    this.smartRouterUrl = options.smartRouterUrl || 'http://localhost:3000';
     this.ollamaUrl = isLoopbackUrl(options.ollamaUrl || 'http://localhost:11434')
       ? (options.ollamaUrl || 'http://localhost:11434') : 'http://localhost:11434';
     this.geminiApiKey = options.geminiApiKey || '';
@@ -94,6 +95,7 @@ class AiClient {
     this.openCodeApiKey = options.openCodeApiKey || '';
     this.xaiApiKey = options.xaiApiKey || '';
     this.metaApiKey = options.metaApiKey || '';
+    this.zaiApiKey = options.zaiApiKey || '';
     this.abortSignal = null;
     this.sendDeadlineMs = Number(options.sendDeadlineMs) > 0 ? Number(options.sendDeadlineMs) : SEND_DEADLINE_MS;
     this.providerCooldown = new ProviderCooldown();
@@ -102,6 +104,7 @@ class AiClient {
     this.openRouterCredentialRevision = 0;
     this.xaiCredentialRevision = 0;
     this.metaCredentialRevision = 0;
+    this.zaiCredentialRevision = 0;
     this.groqModelCatalog = { checkedAt: 0, ids: [] };
     this.openRouterModelCatalog = { checkedAt: 0, models: [] };
     this.opencodeModelCatalog = { checkedAt: 0, ids: [] };
@@ -109,7 +112,7 @@ class AiClient {
     this.metaModelCatalog = { checkedAt: 0, ids: [] };
   }
 
-  updateConfig({ smartRouterUrl, ollamaUrl, geminiApiKey, groqApiKey, groqFreeEnabled, cerebrasApiKey, openRouterApiKey, freeCloudEnabled, openCodeFreeEnabled, openCodeApiKey, xaiApiKey, metaApiKey }) {
+  updateConfig({ ollamaUrl, geminiApiKey, groqApiKey, groqFreeEnabled, cerebrasApiKey, openRouterApiKey, freeCloudEnabled, openCodeFreeEnabled, openCodeApiKey, xaiApiKey, metaApiKey, zaiApiKey }) {
     const nextGeminiApiKey = geminiApiKey || '';
     if (nextGeminiApiKey !== this.geminiApiKey) {
       this.geminiCredentialRevision += 1;
@@ -128,7 +131,12 @@ class AiClient {
       this.openRouterModelCatalog = { checkedAt: 0, models: [] };
       this.providerCooldown.clear('openrouter');
     }
-    if (smartRouterUrl) this.smartRouterUrl = smartRouterUrl;
+    const nextZaiApiKey = zaiApiKey !== undefined ? (zaiApiKey || '') : this.zaiApiKey;
+    if (nextZaiApiKey !== this.zaiApiKey) {
+      this.zaiCredentialRevision += 1;
+      this.providerCooldown.clear('zai');
+    }
+    this.zaiApiKey = nextZaiApiKey;
     if (ollamaUrl && isLoopbackUrl(ollamaUrl)) this.ollamaUrl = ollamaUrl;
     this.geminiApiKey = nextGeminiApiKey;
     this.groqApiKey = nextGroqApiKey;
@@ -186,18 +194,7 @@ class AiClient {
   pullLocalModel(model, onProgress) { return LocalModelManager.pull(this.ollamaUrl, model, onProgress); }
   async recommendLocalModel() { return LocalModelManager.recommendation(await this.getLocalModels()); }
 
-  async getCloudModels() {
-    const fallbackList = [{ id: 'smart-router', name: '⚡ Automático · 100% Cloud Gratis (0% PC)', provider: 'auto' }];
-    try {
-      const res = await fetch(`${this.smartRouterUrl}/api/models`, { signal: AbortSignal.timeout(2500) });
-      if (!res.ok) return fallbackList;
-      const data = await res.json();
-      const models = Array.isArray(data.models) ? data.models : fallbackList;
-      const withoutAuto = models.filter((item) => item?.id && item.id !== 'smart-router' &&
-        item.id !== 'auto' && ModelCatalog.isSafeRouterId(item.id));
-      return [fallbackList[0], ...withoutAuto];
-    } catch { return fallbackList; }
-  }
+  getZaiModels() { return Promise.resolve(ModelCatalog.getZaiModels(this.zaiApiKey)); }
 
   /**
    * Cada modelo lleva group ('auto' | 'free' | 'local' | 'paid') y la lista sale ordenada por
@@ -205,13 +202,13 @@ class AiClient {
    * no mande la petición a un proveedor que factura.
    */
   async listAllModels() {
-    const [localModels, cloudModels, geminiModels, cerebrasModels, groqModels, openRouterModels, freeCloudModels, openCodeModels, xaiModels, metaModels] = await Promise.all([
-      this.getLocalModels(), this.getCloudModels(), this.getGeminiModels(),
-      this.getCerebrasModels(), this.getGroqModels(), this.getOpenRouterModels(), this.getFreeCloudModels(), this.getOpenCodeModels(), this.getXaiModels(), this.getMetaModels()
+    const [localModels, geminiModels, cerebrasModels, groqModels, zaiModels, openRouterModels, freeCloudModels, openCodeModels, xaiModels, metaModels] = await Promise.all([
+      this.getLocalModels(), this.getGeminiModels(),
+      this.getCerebrasModels(), this.getGroqModels(), this.getZaiModels(), this.getOpenRouterModels(), this.getFreeCloudModels(), this.getOpenCodeModels(), this.getXaiModels(), this.getMetaModels()
     ]);
-    const autoModel = cloudModels.find((m) => m.id === 'smart-router');
-    const otherCloud = cloudModels.filter((m) => m.id !== 'smart-router');
-    const combined = [autoModel, ...geminiModels, ...groqModels, ...openRouterModels, ...openCodeModels, ...freeCloudModels, ...otherCloud, ...localModels, ...cerebrasModels, ...xaiModels, ...metaModels].filter(Boolean);
+    // 'smart-router' es el id interno de Automático (se conserva por las sesiones guardadas).
+    const autoModel = { id: 'smart-router', name: 'Automático · proveedores gratuitos', provider: 'auto' };
+    const combined = [autoModel, ...geminiModels, ...groqModels, ...zaiModels, ...openRouterModels, ...openCodeModels, ...freeCloudModels, ...localModels, ...cerebrasModels, ...xaiModels, ...metaModels].filter(Boolean);
     const unique = [...new Map(combined.map((item) => [item.id, item])).values()]
       .map((item) => ({ ...item, group: ModelCatalog.groupFor(item) }));
     return unique.sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group));
@@ -339,6 +336,23 @@ class AiClient {
       }
     }
 
+    if (this.zaiApiKey) {
+      try {
+        const result = await this.sendCompatibleRequest({
+          model: ZAI_FREE_VISION_MODEL.id,
+          messages: visionMessages,
+          baseUrl: ZAI_BASE_URL,
+          apiKey: this.zaiApiKey,
+          providerName: 'Z.ai Vision',
+          timeoutMs: 60000,
+          signal
+        });
+        if (result?.content) return result.content;
+      } catch (error) {
+        if (signal?.aborted) throw cancellationError(signal);
+      }
+    }
+
     if (this.openRouterApiKey) {
       const visionCandidates = [
         'google/gemini-2.0-flash-exp:free',
@@ -408,6 +422,9 @@ class AiClient {
     } else if (model.startsWith('groq:')) {
       if (!this.groqFreeEnabled || !this.groqApiKey) throw new Error('Activa Groq Free y guarda tu clave de Groq en ⚙️ APIs para usar este modelo.');
       throwIfSkipped('groq', 'Groq');
+    } else if (model.startsWith('zai:')) {
+      if (!this.zaiApiKey) throw new Error('Configura tu clave de Z.ai en Ajustes para usar GLM.');
+      throwIfSkipped('zai', 'Z.ai');
     } else if (model.startsWith('cerebras:')) {
       if (!this.cerebrasApiKey) throw new Error('No hay clave de Cerebras configurada (no se gestiona desde ⚙️ APIs). Elige otro modelo.');
       throwIfSkipped('cerebras', 'Cerebras');
@@ -449,7 +466,9 @@ class AiClient {
 
   async dispatchMessage({ model = 'smart-router', messages = [], systemPrompt = '', webSearch = false, roleHint = '' }, signal) {
     if (typeof model !== 'string') throw new Error('El identificador del modelo no es válido.');
-    if (model.startsWith('router:') && !ModelCatalog.isSafeRouterId(model)) model = 'smart-router';
+    // El Smart AI Router local se retiró en la 1.3.0: los ids router: de conversaciones guardadas
+    // pasan a Automático en vez de fallar.
+    if (model.startsWith('router:')) model = 'smart-router';
     let formattedMessages = messages.map((m) => ({ role: m.role, content: m.content }));
     if (systemPrompt) formattedMessages.unshift({ role: 'system', content: systemPrompt });
     this.assertModelReady(model, formattedMessages, roleHint);
@@ -504,6 +523,11 @@ class AiClient {
       if (result) return result;
       throw new Error(failure || 'No se pudo completar con Groq Free.');
     }
+    if (model.startsWith('zai:')) {
+      const { result, failure } = await ProviderCascade.tryZaiCascade(this, formattedMessages, roleHint, model.slice(4), hasImages, { signal });
+      if (result) return result;
+      throw new Error(failure || 'No se pudo completar con Z.ai.');
+    }
     if (model.startsWith('cerebras:')) {
       const { result, failure } = await ProviderCascade.tryCerebrasCascade(this, formattedMessages, roleHint, model.slice(9), { signal });
       if (result) return result;
@@ -535,26 +559,29 @@ class AiClient {
     if (model === 'smart-router' || model === 'auto' || model === 'auto-smart') {
       return this.sendAutomatic(model, formattedMessages, { roleHint, hasImages, signal });
     }
-    if (model.startsWith('router:')) {
-      const { result, failure } = await this.tryRouter(model, model, formattedMessages, roleHint, signal);
-      if (result) return result;
-      throw new Error(`No se pudo generar respuesta con «${model}». ${failure}`);
-    }
-    // Lo que queda son modelos de Ollama elegidos a mano (sus ids no llevan prefijo). Van
-    // directos a Ollama: antes pasaban primero por el Smart Router, que podía contestar con un
-    // modelo en la nube aunque el usuario hubiera elegido local por privacidad.
+    // Lo que queda son modelos de Ollama elegidos a mano (sus ids no llevan prefijo): van directos.
     return this.sendToLocalModel(model, formattedMessages, signal);
   }
 
+  /** ¿Hay al menos un proveedor con clave que pueda atender Automático? */
+  hasAutomaticProvider() {
+    return Boolean(this.geminiApiKey || (this.groqFreeEnabled && this.groqApiKey) || this.zaiApiKey || this.openRouterApiKey);
+  }
+
+  /**
+   * Automático: solo proveedores gratuitos en la nube. Sin servidor local: el Smart AI Router
+   * era un proyecto propio que los demás usuarios no tienen, y por defecto apuntaba a
+   * localhost:3000, donde suele haber otra aplicación que recibía las conversaciones.
+   */
   async sendAutomatic(model, messages, { roleHint = '', hasImages = false, signal } = {}) {
     const failures = [];
     const gemini = () => ProviderCascade.tryGeminiCascade(this, messages, roleHint, '', { signal });
     const groq = () => ProviderCascade.tryGroqCascade(this, messages, roleHint, '', hasImages, { signal });
-    // planner y subagent priorizan la latencia de Groq. Cerebras ya no entra en Automático: su
-    // cuenta es de crédito de prueba y su clave no se puede ver ni borrar en ⚙️ APIs.
-    const steps = (roleHint === 'planner' || roleHint === 'subagent') ? [groq, gemini] : [gemini, groq];
+    const zai = () => ProviderCascade.tryZaiCascade(this, messages, roleHint, '', hasImages, { signal });
+    // planner y subagent priorizan la latencia de Groq. Z.ai va después: sus Flash gratuitos son
+    // lentos. Cerebras no entra: su cuenta es de crédito de prueba.
+    const steps = (roleHint === 'planner' || roleHint === 'subagent') ? [groq, gemini, zai] : [gemini, groq, zai];
     if (!hasImages) steps.push(() => ProviderCascade.tryOpenRouterCascade(this, messages, { signal }));
-    steps.push(() => this.tryRouter(model, 'auto', messages, roleHint, signal));
     if (!hasImages) steps.push(() => this.tryPublicCloudFallback(messages, roleHint, signal));
 
     for (const step of steps) {
@@ -563,26 +590,13 @@ class AiClient {
       if (result) return result;
       if (failure) failures.push(failure);
     }
-    throw new Error(`No se pudo generar respuesta con las IAs en la nube («${model}»). ${failures.join(' · ')}`);
-  }
-
-  async tryRouter(model, routerModel, messages, roleHint, signal) {
-    try {
-      const routerRes = await fetch(`${this.smartRouterUrl}/v1/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: routerModel, messages, roleHint }),
-        signal: timeoutSignal(90000, signal)
-      });
-      if (!routerRes.ok) return { result: null, failure: `Smart Router: HTTP ${routerRes.status}` };
-      const data = await routerRes.json();
-      const content = data.choices?.[0]?.message?.content;
-      if (!content) return { result: null, failure: 'Smart Router: respondió sin texto' };
-      return { result: { content, model: data.model || model, provider: data.model || 'Smart AI Router Cloud', finishReason: data.choices?.[0]?.finish_reason || '' }, failure: '' };
-    } catch (error) {
-      if (signal?.aborted) throw cancellationError(signal);
-      return { result: null, failure: `Smart Router: ${summarizeProviderError(error.message)}` };
+    if (!this.hasAutomaticProvider()) {
+      const error = new Error('No hay ningún proveedor configurado. Añade una clave gratuita (Gemini, Groq, Z.ai u OpenRouter) en Ajustes.' +
+        (failures.length ? ` (${failures.join(' · ')})` : ''));
+      error.code = NO_PROVIDER_CODE;
+      throw error;
     }
+    throw new Error(`No se pudo generar respuesta en modo Automático. ${failures.join(' · ')}`);
   }
 
   /**
@@ -625,4 +639,4 @@ class AiClient {
   }
 }
 
-module.exports = { AiClient, SEND_DEADLINE_MS };
+module.exports = { AiClient, SEND_DEADLINE_MS, NO_PROVIDER_CODE };

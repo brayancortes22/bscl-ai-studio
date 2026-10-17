@@ -4,6 +4,7 @@
 - **Autor y decisor:** Brayan Stid Cortés Lombana (`bscl`)
 - **Formato:** Architecture Decision Records (ADR)
 - Los ADR-020 a ADR-026 se tomaron en la revisión 1.2.0 (2026-10-15) y están pendientes de la aprobación del autor.
+- ADR-027 (1.3.0) lo decidió el autor.
 
 ## ADR-001: Enrutamiento por intención y revisiones concurrentes
 
@@ -317,6 +318,8 @@ En extensión 0.9.7 y Smart AI Router 2.0.0:
 
 **Estado:** Implementado en extensión 0.9.9 y Smart AI Router 2.0.0.
 
+**Actualización 1.3.0:** el Smart AI Router sale de Automático y entra Z.ai (ADR-027).
+
 **Actualización 1.2.0:** Cerebras sale de Automático: su cuenta es de crédito de prueba y la clave no tenía campo en la interfaz. La Nube pública sigue como último recurso, pero solo en chat directo, sin imágenes y sin ningún contexto del proyecto, y recibe solo el último turno. OpenRouter entra en Automático antes que el Smart Router.
 
 ## ADR-019: Auto-Detección de Sub-Proyectos, Edición Quirúrgica (`SEARCH / REPLACE`) y Bucle de Herramientas (`ReAct`)
@@ -476,3 +479,47 @@ Menos controles rotos. Si vuelve un proveedor de búsqueda o transcripción que 
 habrá que reintroducirlos con su propio ADR.
 
 **Estado:** Propuesto en la revisión 1.2.0, pendiente de aprobación del autor.
+
+## ADR-027: Retirar el Smart AI Router y añadir Z.ai (GLM Flash)
+
+### Contexto
+Automático tenía como paso 4 un servidor local propio, el Smart AI Router, en
+`http://localhost:3000`.
+
+- Quien instala la extensión no tiene ese servidor. Sin claves, Automático acababa en un error
+  que solo nombraba al router («Smart Router: respondió sin texto»).
+- En el puerto 3000 suele haber otra aplicación (React, Next…), que recibía las conversaciones
+  con código del proyecto.
+- El autor pidió quitar el router y añadir IAs en la nube, por ejemplo modelos chinos.
+
+Revisión de las páginas oficiales el 2026-10-17:
+
+- **Z.ai.** `https://docs.z.ai/guides/overview/pricing` marca GLM-4.7-Flash, GLM-4.5-Flash y
+  GLM-4.6V-Flash como gratuitos en entrada y salida. Los «FlashX» y GLM-5.3 cobran.
+- **SiliconFlow internacional.** No tiene modelos de chat gratuitos, solo $1 de crédito. Sus
+  modelos gratuitos de la plataforma china exigen verificación de identidad china. Se descartó.
+
+### Decisión
+- Se retiran del código, la interfaz, los ajustes (`bsclAi.smartRouterUrl`) y «Probar
+  conexiones»:
+  - el paso del router en Automático;
+  - sus modelos `router:`.
+- Los ids `router:` guardados pasan a Automático.
+- Z.ai entra como proveedor gratuito, con clave en Ajustes, en Automático después de Gemini y
+  Groq. Usa GLM-4.7-Flash y luego GLM-4.5-Flash, y con imágenes GLM-4.6V-Flash. También se usa
+  para describir imágenes en modelos sin visión.
+- Solo se envían los tres IDs de precio $0. Un modelo `zai:` de pago se rechaza sin llamar a la
+  API.
+- Sin ninguna clave, Automático lanza `BSCL_NO_PROVIDER` y el panel ofrece abrir Ajustes.
+- Ollama se queda como opción manual.
+
+### Consecuencias
+- La extensión funciona igual para cualquiera: no depende de nada instalado en el equipo, salvo
+  Ollama si se elige a mano.
+- Hace falta al menos una clave gratuita para las tareas de agentes.
+- Z.ai no publica un endpoint para listar modelos: los IDs van fijos y «Probar conexiones» los
+  confirma con una petición de 1 token a un modelo gratuito.
+- Los límites de uso de los modelos gratuitos de Z.ai no se pudieron leer: su página exige
+  iniciar sesión.
+
+**Estado:** Implementado en extensión 1.3.0.

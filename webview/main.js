@@ -218,7 +218,7 @@
     if (settleDetached(payload)) return;
     const message = payload.message || 'Error desconocido.';
     if (isCurrent(payload) && window.MessageView.hasPending()) {
-      window.MessageView.failPending(message, payload.kind === 'warning' ? 'warning' : 'error');
+      window.MessageView.failPending(message, payload.kind === 'warning' ? 'warning' : 'error', actionFor(payload));
       // La pregunta fallida no se reenvía como contexto; vuelve al cuadro para reintentar.
       const { userEntry } = state.request;
       const index = state.conversation.lastIndexOf(userEntry);
@@ -229,8 +229,14 @@
       }
       finishRequest();
     } else {
-      window.MessageView.appendNotice(message, 'error');
+      window.MessageView.appendNotice(message, payload.kind === 'warning' ? 'warning' : 'error', actionFor(payload));
     }
+  }
+
+  /** Botón dentro del aviso de error cuando la extensión indica una acción (p. ej. abrir Ajustes). */
+  function actionFor(payload = {}) {
+    if (payload.action === 'settings') return { label: 'Abrir ajustes', onClick: () => onCommand({ action: 'settings' }) };
+    return null;
   }
 
   function onCancelled(payload = {}) {

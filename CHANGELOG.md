@@ -3,6 +3,25 @@
 Cambios por versión de BSCL AI Studio. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Las fechas salen del historial de git; las versiones anteriores a 1.0.0 no tienen fecha registrada.
 
+## [1.3.0] — 2026-10-17
+
+### Proveedores
+
+- **Z.ai (GLM)** como proveedor gratuito, con su clave en Ajustes.
+  - En Automático va después de Gemini y Groq: GLM-4.7-Flash y luego GLM-4.5-Flash.
+  - Con imágenes usa GLM-4.6V-Flash, que también describe imágenes para los modelos sin visión.
+  - Solo se envían modelos de precio $0, según la página oficial de precios consultada el
+    2026-10-17.
+- **Retirado el Smart AI Router local** (`bsclAi.smartRouterUrl`): era un servidor propio que
+  los demás usuarios no tienen. Los ids `router:` de conversaciones guardadas pasan a
+  Automático.
+- Sin ninguna clave, las tareas de agentes en Automático avisan antes de empezar y ofrecen un
+  botón **Abrir ajustes**. Los mensajes de error ya no dicen «smart-router».
+
+### Proyecto
+
+- 8 tests nuevos de Z.ai y de la retirada del router (273 en total).
+
 ## [1.2.0] — 2026-10-15
 
 Revisión completa: auditoría de 131 hallazgos verificados contra el código, rediseño del
